@@ -29,6 +29,7 @@ export function apply(state, cs) {
   const entities = new Map(state.entities);
   for (const op of cs.ops) {
     const prev = entities.get(op.entity_id);
+    if (prev && prev.rev >= op.rev) continue; // already have this or a newer version
     entities.set(op.entity_id, {
       id: op.entity_id,
       kind: op.kind,
