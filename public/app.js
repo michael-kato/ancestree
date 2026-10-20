@@ -24,6 +24,9 @@ function h(tag, attrs = {}, ...kids) {
   return el;
 }
 
+// Like replaceChildren, but skips the false/null left by `cond && node`.
+const fill = (el, ...parts) => el.replaceChildren(...parts.flat().filter((p) => p != null && p !== false));
+
 async function api(path, { method = 'GET', body, raw, type } = {}) {
   const opts = { method, headers: {} };
   if (raw) { opts.body = raw; opts.headers['content-type'] = type; }
@@ -413,15 +416,15 @@ async function draw({ highlight = new Set(), duration = 450, fit = false } = {})
     g.select('image').attr('href', photo ? `/api/trees/${V.id}/media/${photo}` : null).attr('display', photo ? null : 'none');
     g.select('.name').attr('x', x).text(clip(nameOf(d), photo ? 17 : 21));
     g.select('.years').attr('x', x).text(T.lifespan(d.data));
+    g.classed('lit', false);
     if (highlight.has(d.id)) {
-      g.classed('lit', false);
       void this.getBoundingClientRect(); // restart the expose animation
       g.classed('lit', true);
     }
   });
 
   renderEmpty(g.people.length);
-  if (fit || (V.playing && V.mode !== 'live')) fitView(layout, duration);
+  if (fit || V.mode !== 'live') fitView(layout, duration);
 }
 
 function fitView(layout, duration) {
@@ -534,18 +537,18 @@ function renderCaption() {
   const c = V.el.caption;
   if (!c) return;
   if (V.mode === 'generations') {
-    if (!V.yearRange) { c.replaceChildren(h('span', { class: 'what' }, 'Add birth years to people to see generations.')); return; }
+    if (!V.yearRange) { fill(c, h('span', { class: 'what' }, 'Add birth years to people to see generations.')); return; }
     const shown = [...V.years.values()].filter((y) => y != null && y <= V.year).length;
     const unknown = [...V.years.values()].filter((y) => y == null).length;
-    c.replaceChildren(h('span', { class: 'big' }, V.year),
+    fill(c, h('span', { class: 'big' }, V.year),
       h('span', { class: 'what' }, `${shown} ${shown === 1 ? 'person' : 'people'} born by then`),
       unknown > 0 && h('span', { class: 'when' }, `${unknown} without a birth year or close relative with one aren’t shown`));
     return;
   }
   const n = V.replayer.length;
-  if (V.frame === 0) { c.replaceChildren(h('span', { class: 'big' }, `0 of ${n}`), h('span', { class: 'what' }, 'Before the first edit')); return; }
+  if (V.frame === 0) { fill(c, h('span', { class: 'big' }, `0 of ${n}`), h('span', { class: 'what' }, 'Before the first edit')); return; }
   const cs = V.replayer.log[V.frame - 1];
-  c.replaceChildren(
+  fill(c,
     h('span', { class: 'big' }, `${V.frame} of ${n}`),
     h('span', { class: 'what' }, h('strong', {}, cs.user_name || 'Someone'), ': ', cs.message),
     h('time', { class: 'when', datetime: new Date(cs.created_at).toISOString() }, when.format(cs.created_at)),
@@ -588,8 +591,8 @@ async function togglePlay() {
   const cur = V;
   while (cur === V && V.playing && current() < playerRange()[1]) {
     const ms = (V.mode === 'replay' ? STEP_MS : YEAR_MS) / V.speed;
-    await seek(current() + 1, ms * 0.8);
-    await sleep(ms * 0.35);
+    // Pace by the clock, not the animation, so reduced motion still steps at the chosen speed.
+    await Promise.all([seek(current() + 1, ms * 0.8), sleep(ms)]);
   }
   if (cur === V) { V.playing = false; renderPlayer(); }
 }
@@ -677,7 +680,7 @@ function renderPanel() {
     onclick: () => { V.tab = key; V.form = null; renderPanel(); },
   }, clip(label, 24))));
   const body = V.form ? formView() : { person: personView, chat: chatView, history: historyView, members: membersView }[V.tab]();
-  V.el.body.replaceChildren(...[body].flat());
+  fill(V.el.body, body);
 }
 
 function personView() {
