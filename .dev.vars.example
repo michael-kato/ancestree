@@ -1,0 +1,3 @@
+# Cloudflare's published Turnstile test keys (always pass). Copy to .dev.vars.
+TURNSTILE_SITEKEY=1x00000000000000000000AA
+TURNSTILE_SECRET=1x0000000000000000000000000000000AA
