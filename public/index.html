@@ -68,9 +68,10 @@ a { color: inherit; }
 .btn:hover { filter: brightness(1.15); }
 .btn.quiet { background: transparent; color: var(--ink); border-color: var(--rule); }
 .btn.danger { background: transparent; color: var(--danger); border-color: currentColor; }
+.btn.quiet:hover, .btn.danger:hover { filter: none; background: var(--paper-2); }
 .btn.small { min-height: 32px; padding: 0 var(--s3); font-size: 14px; }
 .btn:disabled { opacity: .5; cursor: default; }
-.link { background: none; border: 0; padding: 0; color: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.link { background: none; border: 0; padding: 0; color: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; justify-self: start; }
 
 label.field { display: grid; gap: var(--s1); font-size: 14px; font-weight: 600; color: var(--ink-soft); }
 .field input, .field select, .field textarea, .composer textarea {
@@ -83,6 +84,10 @@ label.field { display: grid; gap: var(--s1); font-size: 14px; font-weight: 600; 
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); }
 .stack { display: grid; gap: var(--s4); }
 .hint { font-size: 14px; color: var(--ink-soft); }
+.check { display: flex; gap: var(--s2); align-items: center; }
+.check input { width: 18px; height: 18px; accent-color: var(--prussian); }
+.more summary { cursor: pointer; font-weight: 600; color: var(--ink-soft); padding: var(--s1) 0; }
+.more[open] summary { margin-bottom: var(--s3); }
 .error { color: var(--danger); font-size: 14px; }
 
 /* Sign-in and tree list: centred on the print. */
@@ -151,7 +156,7 @@ label.field { display: grid; gap: var(--s1); font-size: 14px; font-weight: 600; 
 
 /* Side panel */
 .panel { border-left: 1px solid var(--rule); background: var(--paper); display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
-.tabs { display: flex; gap: var(--s4); padding: 0 var(--s4); border-bottom: 1px solid var(--rule); overflow-x: auto; }
+.tabs { display: flex; gap: var(--s4); padding: 0 var(--s4); border-bottom: 1px solid var(--rule); overflow-x: auto; scrollbar-width: none; }
 .tabs button { border: 0; background: none; padding: var(--s3) 0; cursor: pointer; color: var(--ink-soft); font-weight: 600; border-bottom: 3px solid transparent; white-space: nowrap; }
 .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--prussian); }
 .panel-body { overflow-y: auto; padding: var(--s5) var(--s4); display: grid; gap: var(--s5); align-content: start; }

@@ -57,6 +57,15 @@ function ago(ms) {
   }
   return 'just now';
 }
+const longDate = new Intl.DateTimeFormat(undefined, { dateStyle: 'long', timeZone: 'UTC' });
+const monthYear = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' });
+// Partial dates stay partial: 1950, April 1950, April 21, 1950.
+function formatDate(s) {
+  const [y, m, d] = (s || '').split('-').map(Number);
+  if (!m) return s;
+  const date = new Date(Date.UTC(y, m - 1, d || 1));
+  return d ? longDate.format(date) : monthYear.format(date);
+}
 const nameOf = (e) => T.displayName(e?.data) || 'Unnamed';
 const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 
@@ -142,7 +151,7 @@ async function loginScreen() {
   frontScreen(form);
   try {
     const [{ turnstile_sitekey }] = await Promise.all([api('/config'), loadTurnstile()]);
-    widgetId = window.turnstile.render(widget, { sitekey: turnstile_sitekey });
+    widgetId = window.turnstile.render(widget, { sitekey: turnstile_sitekey, appearance: 'interaction-only' });
   } catch (e) { err.textContent = e.message; }
 }
 
@@ -159,7 +168,7 @@ function nameScreen() {
 }
 
 function treesScreen() {
-  const name = h('input', { required: true, maxlength: 80, placeholder: 'The Kato family' });
+  const name = h('input', { required: true, maxlength: 80 });
   const roleWord = { owner: 'Owner', editor: 'Can edit', viewer: 'Can view' };
   frontScreen(
     h('div', { class: 'sheet' },
@@ -173,7 +182,7 @@ function treesScreen() {
           ev.preventDefault();
           try { const { tree } = await api('/trees', { method: 'POST', body: { name: name.value } }); go(`/t/${tree.id}`); } catch (e) { toast(e.message, 'error'); }
         },
-      }, h('label', { class: 'field' }, 'Start a new tree', name), h('div', {}, h('button', { class: 'btn' }, 'Create tree'))),
+      }, h('label', { class: 'field' }, 'Name a new tree', name), h('div', {}, h('button', { class: 'btn' }, 'Create tree'))),
       h('p', { class: 'hint' }, `Signed in as ${me.user.email}. `, h('button', { class: 'link', onclick: signOut }, 'Sign out'))));
 }
 
@@ -409,8 +418,9 @@ async function draw({ highlight = new Set(), duration = 450, fit = false } = {})
     g.attr('aria-label', `${nameOf(d)}${T.lifespan(d.data) ? ', ' + T.lifespan(d.data) : ''}`)
       .classed('selected', d.id === V.selected);
     g.select('image').attr('href', photo ? `/api/trees/${V.id}/media/${photo}` : null).attr('display', photo ? null : 'none');
-    g.select('.name').attr('x', x).text(clip(nameOf(d), photo ? 17 : 21));
-    g.select('.years').attr('x', x).text(T.lifespan(d.data));
+    const years = T.lifespan(d.data);
+    g.select('.name').attr('x', x).attr('y', years ? 25 : NODE_H / 2 + 5).text(clip(nameOf(d), photo ? 17 : 21));
+    g.select('.years').attr('x', x).text(years);
     g.classed('lit', false);
     if (highlight.has(d.id)) {
       void this.getBoundingClientRect(); // restart the expose animation
@@ -419,7 +429,20 @@ async function draw({ highlight = new Set(), duration = 450, fit = false } = {})
   });
 
   renderEmpty(g.people.length);
-  if (fit || V.mode !== 'live') fitView(layout, duration);
+  if (fit || V.mode !== 'live' || !V.pos?.size) fitView(layout, duration);
+  V.pos = pos;
+}
+
+// Pan (keeping the zoom) so a person is on screen, e.g. after adding them or picking them from a list.
+function ensureVisible(id) {
+  const p = V.pos?.get(id);
+  if (!p) return;
+  const svg = V.el.svg.node(), { width, height } = svg.getBoundingClientRect();
+  const tr = d3.zoomTransform(svg), [x, y] = tr.apply([p.x, p.y]);
+  const margin = 24;
+  if (x >= margin && y >= margin && x + NODE_W * tr.k <= width - margin && y + NODE_H * tr.k <= height - margin) return;
+  const next = d3.zoomIdentity.translate(width / 2 - (p.x + NODE_W / 2) * tr.k, height / 2 - (p.y + NODE_H / 2) * tr.k).scale(tr.k);
+  V.el.svg.transition().duration(reduceMotion ? 0 : 450).call(V.zoom.transform, next);
 }
 
 function fitView(layout, duration) {
@@ -448,6 +471,7 @@ function select(id) {
   V.form = null;
   V.tab = id ? 'person' : 'chat';
   V.el.people.selectAll('g.person').classed('selected', (d) => d.id === id);
+  if (id) ensureVisible(id);
   renderPanel();
 }
 
@@ -607,8 +631,8 @@ async function commit(message, ops) {
     const { changeset } = await api(`/trees/${V.id}/changesets`, { method: 'POST', body: { message, ops } });
     // The log gets it from the next poll, in order; current state can take it now.
     V.state = T.apply(V.state, changeset);
-    if (V.mode === 'live') draw({ highlight: touched(changeset, V.state) });
     poll();
+    if (V.mode === 'live') await draw({ highlight: touched(changeset, V.state) });
     return changeset;
   } catch (e) {
     toast(e.message, 'error');
@@ -667,13 +691,14 @@ const threadKey = () => (V.tab === 'person' ? V.selected : V.tab === 'chat' ? ''
 
 function renderPanel() {
   const tabs = [
-    V.selected && ['person', nameOf(V.state.entities.get(V.selected))],
+    V.selected && ['person', V.state.entities.get(V.selected)?.data.given || nameOf(V.state.entities.get(V.selected))],
     ['chat', 'Family chat'], ['history', 'History'], ['members', 'Members'],
   ].filter(Boolean);
   V.el.tabs.replaceChildren(...tabs.map(([key, label]) => h('button', {
-    role: 'tab', 'aria-selected': String(V.tab === key),
+    // The first-person form belongs to no tab.
+    role: 'tab', 'aria-selected': String(V.tab === key && V.form?.relation !== 'first'),
     onclick: () => { V.tab = key; V.form = null; renderPanel(); },
-  }, clip(label, 24))));
+  }, clip(label, 18))));
   const body = V.form ? formView() : { person: personView, chat: chatView, history: historyView, members: membersView }[V.tab]();
   fill(V.el.body, body);
 }
@@ -689,7 +714,7 @@ function personView() {
     ...(partners.get(p.id) || []).map((r) => kinRow(r, r.type === 'married' ? 'spouse' : 'partner')),
     ...(children.get(p.id) || []).map((r) => kinRow(r, r.type === 'birth' ? 'child' : `${r.type} child`)),
   ];
-  const fact = (label, date, place) => (date || place) && h('p', {}, `${label} ${[date, place && `in ${place}`].filter(Boolean).join(' ')}`);
+  const fact = (label, date, place) => (date || place) && h('p', {}, `${label} ${[formatDate(date), place && `in ${place}`].filter(Boolean).join(' ')}`);
   return [
     h('div', { class: 'person-head' },
       d.photo && h('img', { class: 'portrait', src: `/api/trees/${V.id}/media/${d.photo}`, alt: `Photo of ${nameOf(p)}` }),
@@ -701,6 +726,7 @@ function personView() {
       h('button', { class: 'btn quiet small', onclick: () => openForm({ type: 'add', relation: 'parent' }) }, 'Add parent'),
       h('button', { class: 'btn quiet small', onclick: () => openForm({ type: 'add', relation: 'partner' }) }, 'Add partner'),
       h('button', { class: 'btn quiet small', onclick: () => openForm({ type: 'add', relation: 'child' }) }, 'Add child')),
+    !editor() && h('p', { class: 'hint' }, 'You can view this tree and comment. Ask an owner if you’d like to edit it too.'),
     kin.length > 0 && h('section', { class: 'section' }, h('h3', {}, 'Family'), h('ul', { class: 'kin' }, kin)),
     threadSection(p.id, `Comments about ${T.displayName(d) || 'this person'}`, 'Share a memory or ask a question'),
     editor() && h('div', {}, h('button', { class: 'btn danger small', onclick: () => removePerson(p) }, 'Remove from tree')),
@@ -746,7 +772,14 @@ function noteView(n, targetId) {
   const mine = n.user_id === me.user.id;
   const wrap = h('div', {});
   const tools = h('div', { class: 'note-tools' },
-    !n.parent_id && h('button', { class: 'link', onclick: () => tools.after(composer(targetId, n.id, `Reply to ${n.user_name}`, true)) }, 'Reply'),
+    !n.parent_id && h('button', {
+      class: 'link', onclick: () => {
+        const open = wrap.querySelector('.composer');
+        if (open) return open.querySelector('textarea').focus();
+        const reply = composer(targetId, n.id, `Reply to ${n.user_name}`, () => reply.remove());
+        tools.after(reply);
+      },
+    }, 'Reply'),
     mine && h('button', { class: 'link', onclick: () => editNote(wrap, n) }, 'Edit'),
     (mine || V.role === 'owner') && h('button', { class: 'link', onclick: () => deleteNote(n) }, 'Delete'));
   wrap.append(
@@ -757,7 +790,8 @@ function noteView(n, targetId) {
   return wrap;
 }
 
-function composer(targetId, parentId, placeholder, focus = false) {
+// onCancel makes it a dismissible reply box, focused on open.
+function composer(targetId, parentId, placeholder, onCancel) {
   const text = h('textarea', { placeholder, maxlength: 4000, 'aria-label': placeholder, rows: 3 });
   const form = h('form', {
     class: 'composer', onsubmit: async (ev) => {
@@ -770,8 +804,9 @@ function composer(targetId, parentId, placeholder, focus = false) {
         renderPanel();
       } catch (e) { toast(e.message, 'error'); }
     },
-  }, text, h('div', {}, h('button', { class: 'btn small' }, parentId ? 'Post reply' : 'Post comment')));
-  if (focus) queueMicrotask(() => text.focus());
+  }, text, h('div', { class: 'row' }, h('button', { class: 'btn small' }, parentId ? 'Post reply' : 'Post comment'),
+    onCancel && h('button', { class: 'btn quiet small', type: 'button', onclick: onCancel }, 'Cancel')));
+  if (onCancel) queueMicrotask(() => text.focus());
   return form;
 }
 
@@ -887,26 +922,34 @@ async function resizeImage(file) {
 function formView() {
   const f = V.form;
   const subject = V.selected && V.state.entities.get(V.selected);
-  const base = f.type === 'edit' ? subject.data : {};
+  // A new child usually shares a surname with the parent they're added from.
+  const base = f.type === 'edit' ? subject.data : f.relation === 'child' ? { surname: subject.data.surname } : {};
   const input = (name, label, attrs = {}) => h('label', { class: 'field' }, label, h('input', { name, value: base[name] || '', ...attrs }));
   const dateHint = { placeholder: '1950 or 1950-04-21', pattern: '\\d{4}(-\\d{2}(-\\d{2})?)?', inputmode: 'numeric' };
   const photo = h('input', { type: 'file', name: 'photo', accept: 'image/jpeg,image/png,image/webp,image/gif' });
-  const { parents, partners } = T.relatives(V.state);
+  const { parents, partners, children } = T.relatives(V.state);
 
-  let extra = null;
-  if (f.type === 'add' && f.relation === 'child') {
+  const who = subject && (subject.data.given || nameOf(subject));
+  const choice = (name, label, options) => h('label', { class: 'field' }, label,
+    h('select', { name }, options.map(([v, l]) => h('option', { value: v }, l))));
+  const check = (name, value, label) => h('label', { class: 'check' }, h('input', { type: 'checkbox', name, value, checked: true }), label);
+  // The relationship is the point of an "add relative" form, so it comes first.
+  const relation = [];
+  if (f.relation === 'child') {
     const ps = partners.get(subject.id) || [];
-    extra = h('label', { class: 'field' }, 'Other parent', h('select', { name: 'other' },
-      ps.map((r) => h('option', { value: r.id }, nameOf(V.state.entities.get(r.id)))), h('option', { value: '' }, 'Not known')));
-  } else if (f.type === 'add' && f.relation === 'parent') {
+    if (ps.length) relation.push(choice('other', 'Other parent', [...ps.map((r) => [r.id, nameOf(V.state.entities.get(r.id))]), ['', 'Not known']]));
+    relation.push(
+      choice('ltype', `Relationship to ${who}`, [['birth', 'Birth child'], ['adoptive', 'Adopted child'], ['step', 'Stepchild'], ['foster', 'Foster child']]));
+  } else if (f.relation === 'parent') {
     const ps = parents.get(subject.id) || [];
-    if (ps.length === 1) extra = h('label', { class: 'row' }, h('input', { type: 'checkbox', name: 'couple', checked: true }), `Partner of ${nameOf(V.state.entities.get(ps[0].id))}`);
-  } else if (f.type === 'add' && f.relation === 'partner') {
-    extra = h('label', { class: 'field' }, 'Relationship', h('select', { name: 'ptype' }, h('option', { value: 'married' }, 'Married'), h('option', { value: 'partner' }, 'Partners')));
-  }
-  if (f.type === 'add' && (f.relation === 'child' || f.relation === 'parent')) {
-    extra = [extra, h('label', { class: 'field' }, 'Relationship', h('select', { name: 'ltype' },
-      h('option', { value: 'birth' }, 'Birth'), h('option', { value: 'adoptive' }, 'Adopted'), h('option', { value: 'step' }, 'Step'), h('option', { value: 'foster' }, 'Foster')))];
+    relation.push(choice('ltype', `Relationship to ${who}`, [['birth', 'Birth parent'], ['adoptive', 'Adoptive parent'], ['step', 'Step-parent'], ['foster', 'Foster parent']]));
+    if (ps.length === 1) relation.push(check('couple', ps[0].id, `Partner of ${nameOf(V.state.entities.get(ps[0].id))}`));
+  } else if (f.relation === 'partner') {
+    relation.push(choice('ptype', `Relationship to ${who}`, [['married', 'Married'], ['partner', 'Partners']]));
+    // Children who so far have only this person as a parent are probably the new partner's too.
+    for (const c of children.get(subject.id) || []) {
+      if ((parents.get(c.id) || []).length === 1) relation.push(check('coparent', c.id, `Also ${nameOf(V.state.entities.get(c.id))}’s parent`));
+    }
   }
 
   const title = f.type === 'edit' ? `Edit ${nameOf(subject)}` : f.relation === 'first' ? 'Add the first person'
@@ -914,14 +957,16 @@ function formView() {
   const submitLabel = f.type === 'edit' ? 'Save changes' : 'Add to tree';
   const form = h('form', { class: 'stack', onsubmit: (ev) => { ev.preventDefault(); savePerson(form, subject); } },
     h('h2', {}, title),
+    relation,
     h('div', { class: 'grid2' }, input('given', 'Given names', { autocomplete: 'off' }), input('surname', 'Surname', { autocomplete: 'off' })),
-    h('label', { class: 'field' }, 'Sex', h('select', { name: 'sex' },
-      [['', 'Not recorded'], ['female', 'Female'], ['male', 'Male'], ['other', 'Other']].map(([v, l]) => h('option', { value: v, selected: (base.sex || '') === v }, l)))),
     h('div', { class: 'grid2' }, input('birth', 'Born', dateHint), input('birth_place', 'Birthplace')),
-    h('div', { class: 'grid2' }, input('death', 'Died', dateHint), input('death_place', 'Place of death')),
-    h('label', { class: 'field' }, 'Notes', h('textarea', { name: 'notes', maxlength: 4000, value: base.notes || '' })),
-    h('label', { class: 'field' }, base.photo ? 'Replace photo' : 'Photo', photo),
-    extra,
+    h('details', { class: 'more', open: f.type === 'edit' }, h('summary', {}, 'More details'),
+      h('div', { class: 'stack' },
+        h('label', { class: 'field' }, 'Sex', h('select', { name: 'sex' },
+          [['', 'Not recorded'], ['female', 'Female'], ['male', 'Male'], ['other', 'Other']].map(([v, l]) => h('option', { value: v, selected: (base.sex || '') === v }, l)))),
+        h('div', { class: 'grid2' }, input('death', 'Died', dateHint), input('death_place', 'Place of death')),
+        h('label', { class: 'field' }, 'Notes', h('textarea', { name: 'notes', maxlength: 4000, value: base.notes || '' })),
+        h('label', { class: 'field' }, base.photo ? 'Replace photo' : 'Photo', photo))),
     h('div', { class: 'row' }, h('button', { class: 'btn' }, submitLabel), h('button', { class: 'btn quiet', type: 'button', onclick: () => { V.form = null; renderPanel(); } }, 'Cancel')));
   queueMicrotask(() => form.elements.given.focus());
   return form;
@@ -969,6 +1014,7 @@ async function savePerson(form, subject) {
     }
     if (f.relation === 'partner') {
       ops.push(link('partner', { a: subject.id, b: id, type: el.ptype.value }));
+      for (const c of form.querySelectorAll('[name=coparent]:checked')) ops.push(link('parent', { parent: id, child: c.value, type: 'birth' }));
       message = `Added ${name} as a partner of ${nameOf(subject)}`;
     }
   }
