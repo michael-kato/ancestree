@@ -32,7 +32,7 @@ Set `MAIL_FROM` (an address on the onboarded domain) and `TURNSTILE_SITEKEY` in 
 - Every edit is an immutable changeset. Undo and "Restore tree to this step" add new edits; nothing is deleted.
 - Two people editing the same person: the second save is rejected with "changed by someone else" and must be redone.
 - One edit can change at most 200 people/relationships, so restoring a very old step of a large tree may need doing in parts.
-- Roles: owner (invites, roles), editor (edits), viewer (reads, comments). Invites only work for the address they were sent to.
+- Roles: owner (invites, roles), editor (edits), viewer (reads, comments). An invite link signs its recipient in as the invited address, so it shouldn't be forwarded.
 
 ## API example
 
