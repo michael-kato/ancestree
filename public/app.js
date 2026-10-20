@@ -73,20 +73,16 @@ async function route() {
   try {
     if (url.pathname === '/auth') {
       await api('/auth/verify', { method: 'POST', body: { token: url.searchParams.get('token') } });
-      const pending = sessionStorage.getItem('invite');
-      history.replaceState(null, '', pending ? `/invite?token=${pending}` : '/');
+      history.replaceState(null, '', '/');
       return route();
     }
-    me = await api('/me').catch((e) => (e.status === 401 ? null : Promise.reject(e)));
     if (url.pathname === '/invite') {
-      const token = url.searchParams.get('token');
-      if (!me) { sessionStorage.setItem('invite', token); return loginScreen('Sign in with the address the invite was sent to, and you’ll join the tree.'); }
-      sessionStorage.removeItem('invite');
-      const { tree } = await api('/invites/accept', { method: 'POST', body: { token } });
+      const { tree } = await api('/invites/accept', { method: 'POST', body: { token: url.searchParams.get('token') } });
       toast(`You joined ${tree.name}`);
       history.replaceState(null, '', `/t/${tree.id}`);
       return route();
     }
+    me = await api('/me').catch((e) => (e.status === 401 ? null : Promise.reject(e)));
     if (!me) return loginScreen();
     if (!me.user.name) return nameScreen();
     const m = url.pathname.match(/^\/t\/([\w-]+)$/);
@@ -116,7 +112,7 @@ function loadTurnstile() {
   return turnstileReady;
 }
 
-async function loginScreen(note) {
+async function loginScreen() {
   const email = h('input', { type: 'email', required: true, autocomplete: 'email', placeholder: 'you@example.com' });
   const widget = h('div');
   const err = h('p', { class: 'error', role: 'alert' });
@@ -131,7 +127,7 @@ async function loginScreen(note) {
         await api('/auth/login', { method: 'POST', body: { email: email.value, turnstile: window.turnstile?.getResponse(widgetId) } });
         form.replaceChildren(h('h2', {}, 'Check your inbox'),
           h('p', {}, `We sent a sign-in link to ${email.value.trim()}. It works once, for 15 minutes.`),
-          h('button', { class: 'link', type: 'button', onclick: () => loginScreen(note) }, 'Use a different address'));
+          h('button', { class: 'link', type: 'button', onclick: () => loginScreen() }, 'Use a different address'));
       } catch (e) {
         err.textContent = e.message;
         window.turnstile?.reset(widgetId);
@@ -140,7 +136,6 @@ async function loginScreen(note) {
     },
   },
   h('h2', {}, 'Sign in'),
-  note && h('p', {}, note),
   h('label', { class: 'field' }, 'Email address', email),
   widget, err, submit,
   h('p', { class: 'hint' }, 'No password needed. New here? The same link creates your account.'));

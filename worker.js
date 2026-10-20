@@ -85,9 +85,13 @@ async function verify(c) {
   const addr = await S.takeLogin(c.env.DB, await hash(String(c.body.token || '')), c.now);
   if (!addr) throw new HttpError(400, 'This sign-in link has expired or was already used. Request a new one.');
   const user = await S.userByEmail(c.env.DB, addr, crypto.randomUUID(), c.now);
+  return json({ user }, 200, await startSession(c, user));
+}
+
+async function startSession(c, user) {
   const token = newToken();
   await S.addSession(c.env.DB, await hash(token), user.id, c.now + SESSION_MS);
-  return json({ user }, 200, { 'set-cookie': sessionCookie(token, SESSION_MS / 1000) });
+  return { 'set-cookie': sessionCookie(token, SESSION_MS / 1000) };
 }
 
 async function logout(c) {
@@ -236,17 +240,18 @@ async function invite(c) {
   const link = `${c.url.origin}/invite?token=${token}`;
   const who = c.user.name || c.user.email;
   await S.sendMail(c.env, addr, `${who} invited you to ${c.tree.name} on Ancestree`,
-    `${who} invited you to the family tree "${c.tree.name}" on Ancestree.\n\nJoin here:\n${link}\n\nSign in with ${addr} to accept. The invite expires in 14 days.`);
+    `${who} invited you to the family tree "${c.tree.name}" on Ancestree.\n\nOpen this link to join. No password needed:\n${link}\n\nThe link works once and expires in 14 days.`);
   return json({ ok: true }, 201);
 }
 
+// The invite link was emailed to inv.email, so it proves that address like a sign-in link does.
 async function acceptInvite(c) {
   const tokenHash = await hash(String(c.body.token || ''));
   const inv = await S.invite(c.env.DB, tokenHash);
   if (!inv || inv.expires_at < c.now) throw new HttpError(400, 'This invite has expired or was already used. Ask for a new one.');
-  if (inv.email !== c.user.email) throw new HttpError(403, `This invite was sent to ${inv.email}. Sign in with that address to accept it.`);
-  await S.acceptInvite(c.env.DB, tokenHash, inv, c.user.id, c.now);
-  return json({ tree: { id: inv.tree_id, name: inv.tree_name } });
+  const user = await S.userByEmail(c.env.DB, inv.email, crypto.randomUUID(), c.now);
+  await S.acceptInvite(c.env.DB, tokenHash, inv, user.id, c.now);
+  return json({ tree: { id: inv.tree_id, name: inv.tree_name } }, 200, await startSession(c, user));
 }
 
 async function keepAnOwner(c, userId) {
@@ -280,7 +285,7 @@ const ROUTES = [
   ['GET', '/api/me', me, 'user'],
   ['PATCH', '/api/me', renameMe, 'user'],
   ['POST', '/api/trees', createTree, 'user'],
-  ['POST', '/api/invites/accept', acceptInvite, 'user'],
+  ['POST', '/api/invites/accept', acceptInvite, 'public'],
   ['GET', '/api/trees/:tree', getTree, 'viewer'],
   ['POST', '/api/trees/:tree/changesets', commit, 'editor'],
   ['GET', '/api/trees/:tree/log', log, 'viewer'],
