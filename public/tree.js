@@ -263,6 +263,37 @@ export function familyGraph(state, visible) {
   return { people, unions: [...unions.values()] };
 }
 
+// Partners grouped into side-by-side blocks, each ordered along its partner chain.
+export function partnerBlocks(state, people) {
+  const adj = new Map(people.map((p) => [p.id, []]));
+  for (const e of state.entities.values()) {
+    if (isLive(e) && e.kind === 'partner' && adj.has(e.data.a) && adj.has(e.data.b)) {
+      adj.get(e.data.a).push(e.data.b);
+      adj.get(e.data.b).push(e.data.a);
+    }
+  }
+  const seen = new Set(), blocks = [];
+  for (const p of people) {
+    if (seen.has(p.id)) continue;
+    const comp = [], stack = [p.id];
+    seen.add(p.id);
+    while (stack.length) {
+      const id = stack.pop();
+      comp.push(id);
+      for (const n of adj.get(id)) if (!seen.has(n)) { seen.add(n); stack.push(n); }
+    }
+    const order = [], walked = new Set();
+    let cur = comp.find((id) => adj.get(id).length <= 1) ?? comp[0];
+    while (cur && !walked.has(cur)) {
+      order.push(cur);
+      walked.add(cur);
+      cur = adj.get(cur).find((n) => !walked.has(n));
+    }
+    blocks.push([...order, ...comp.filter((id) => !walked.has(id))]);
+  }
+  return blocks;
+}
+
 export const year = (d) => (d ? Number(d.slice(0, 4)) : null);
 
 // Known birth years, with gaps filled from relatives (about a generation apart).
