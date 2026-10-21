@@ -180,32 +180,19 @@ export function relatives(state) {
   return { parents, children, partners };
 }
 
-// Ops linking `from` to `to` as dir ('parent' | 'child' | 'sibling') of `from`. `to` may be a
-// person being created in the same changeset (not yet in state). Siblings share parents; if
-// neither has any, they get a new unnamed parent so the relationship can be drawn.
+// Ops linking `from` to `to` as dir ('parent' | 'child' | 'partner') of `from`. `to` may be a
+// person being created in the same changeset (not yet in state).
 export function relateOps(state, from, dir, to, makeId) {
   const { parents, partners } = relatives(state);
   const edge = (parent, child) => ({ id: makeId(), kind: 'parent', base_rev: 0, data: { parent, child, type: 'birth' } });
-  const parentsOf = (id) => (parents.get(id) || []).map((r) => r.id);
-  const name = (id) => displayName(state.entities.get(id)?.data) || 'They';
   if (dir === 'parent') return [edge(to, from)];
-  if (dir === 'child') {
-    const ops = [edge(from, to)];
-    // A child of someone with exactly one partner is most likely that couple's child.
-    const ps = partners.get(from) || [];
-    if (ps.length === 1 && parentsOf(to).length === 0) ops.push(edge(ps[0].id, to));
-    return ops;
-  }
-  if (dir !== 'sibling') throw new Invalid(`unknown relationship ${dir}`);
-  const a = parentsOf(from), b = parentsOf(to);
-  if (a.length && b.length) {
-    if (a.length === b.length && a.every((p) => b.includes(p))) throw new Invalid(`${name(to)} is already a sibling`);
-    throw new Invalid(`${name(from)} and ${name(to)} already have different parents. Link them through a parent instead.`);
-  }
-  if (a.length) return a.map((p) => edge(p, to));
-  if (b.length) return b.map((p) => edge(p, from));
-  const unknown = makeId();
-  return [{ id: unknown, kind: 'person', base_rev: 0, data: {} }, edge(unknown, from), edge(unknown, to)];
+  if (dir === 'partner') return [{ id: makeId(), kind: 'partner', base_rev: 0, data: { a: from, b: to, type: 'married' } }];
+  if (dir !== 'child') throw new Invalid(`unknown relationship ${dir}`);
+  const ops = [edge(from, to)];
+  // A child of someone with exactly one partner is most likely that couple's child.
+  const ps = partners.get(from) || [];
+  if (ps.length === 1 && !(parents.get(to) || []).length) ops.push(edge(ps[0].id, to));
+  return ops;
 }
 
 export function deleteOps(state, personId) {

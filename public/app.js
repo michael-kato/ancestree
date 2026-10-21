@@ -3,10 +3,10 @@ import * as d3 from 'https://cdn.jsdelivr.net/npm/d3@7.9.0/+esm';
 import * as T from './tree.js';
 
 const NODE_W = 188, NODE_H = 58, UNION = 8, PHOTO = 40, COUPLE_GAP = 28;
-// Connection dots on each card: [side, x, y]. Top adds a parent, bottom a child, sides a sibling.
+// Connection dots on each card: [side, x, y]. Top adds a parent, bottom a child, sides a partner.
 const PORTS = [['top', NODE_W / 2, 0], ['bottom', NODE_W / 2, NODE_H], ['left', 0, NODE_H / 2], ['right', NODE_W, NODE_H / 2]];
-const PORT_DIR = { top: 'parent', bottom: 'child', left: 'sibling', right: 'sibling' };
-const PORT_HELP = { top: 'Drag to add a parent', bottom: 'Drag to add a child', left: 'Drag to add a sibling', right: 'Drag to add a sibling' };
+const PORT_DIR = { top: 'parent', bottom: 'child', left: 'partner', right: 'partner' };
+const PORT_HELP = { top: 'Drag to add a parent', bottom: 'Drag to add a child', left: 'Drag to add a partner', right: 'Drag to add a partner' };
 const BAR_BASE = 14, BAR_STEP = 9, BAR_GAP = 12, MAX_TRACKS = 4; // sibling bar heights above the child row
 const POLL_MS = 5000;
 const ROLE_WORD = { owner: 'Owner', editor: 'Can edit', viewer: 'Can view' };
@@ -488,7 +488,7 @@ async function draw({ highlight = new Set(), duration = 450, fit = false } = {})
     (exit) => exit.call((s) => s.transition(t).attr('opacity', 0).remove()),
   ).each(function (d) {
     const g = d3.select(this), photo = d.data.photo, x = photo ? 58 : 14;
-    g.classed('selected', d.id === V.selected).classed('unknown', !T.displayName(d.data));
+    g.classed('selected', d.id === V.selected);
     setBadge(g, d);
     g.select('image').attr('href', photo ? `/api/trees/${V.id}/media/${photo}` : null).attr('display', photo ? null : 'none');
     const years = cardSubtitle(d.data);
@@ -600,7 +600,7 @@ function portDrag(side) {
     });
 }
 
-const RELATION_WORD = { parent: 'a parent', child: 'a child', sibling: 'a sibling' };
+const RELATION_WORD = { parent: 'a parent', child: 'a child', partner: 'a partner' };
 
 async function linkPeople(from, dir, to) {
   const a = nameOf(V.state.entities.get(from)), b = nameOf(V.state.entities.get(to));
@@ -621,11 +621,13 @@ function closeQuickAdd() {
 // A small card at the drop point asking for a name; Enter adds the person, Escape cancels.
 function openQuickAdd(from, dir, [x, y], line) {
   const subject = V.state.entities.get(from).data;
-  const tr = d3.zoomTransform(V.el.svg.node());
-  const [sx, sy] = tr.apply([x, y]);
+  const tr = d3.zoomTransform(V.el.svg.node()), { width, height } = V.el.svg.node().getBoundingClientRect();
+  // Keep the whole card inside the canvas even when the drop was near an edge.
+  const clamp = (v, half, max) => Math.min(Math.max(v, half + 8), max - half - 8);
+  const [px, py] = tr.apply([x, y]), sx = clamp(px, 120, width), sy = clamp(py, 80, height);
   const first = h('input', { name: 'given', placeholder: 'First name', autocomplete: 'off', 'aria-label': 'First name' });
   const last = h('input', { name: 'surname', placeholder: 'Last name', autocomplete: 'off', 'aria-label': 'Last name',
-    value: dir === 'parent' ? '' : subject.surname || '' });
+    value: dir === 'child' ? subject.surname || '' : '' });
   const form = h('form', {
     class: 'quick-add', style: `left:${sx}px;top:${sy}px`,
     onsubmit: async (ev) => {
@@ -925,15 +927,13 @@ function personView() {
     h('div', { class: 'person-head' },
       d.photo && h('img', { class: 'portrait', src: `/api/trees/${V.id}/media/${d.photo}`, alt: `Photo of ${nameOf(p)}` }),
       h('h2', {}, fullName(d) || 'Unknown'),
-      !T.displayName(d) && editor() && h('p', { class: 'hint' }, 'Added to connect siblings. Edit details to name this person.'),
       h('div', { class: 'facts' }, fact('Born', d.birth, d.birth_place), fact('Died', d.death)),
       d.notes && h('p', { class: 'notes' }, d.notes)),
     editor() && h('div', { class: 'actions' },
       h('button', { class: 'btn small', onclick: () => openForm({ type: 'edit' }) }, 'Edit details'),
       h('button', { class: 'btn quiet small', onclick: () => openForm({ type: 'add', relation: 'parent' }) }, 'Add parent'),
       h('button', { class: 'btn quiet small', onclick: () => openForm({ type: 'add', relation: 'partner' }) }, 'Add partner'),
-      h('button', { class: 'btn quiet small', onclick: () => openForm({ type: 'add', relation: 'child' }) }, 'Add child'),
-      h('button', { class: 'btn quiet small', onclick: () => openForm({ type: 'add', relation: 'sibling' }) }, 'Add sibling')),
+      h('button', { class: 'btn quiet small', onclick: () => openForm({ type: 'add', relation: 'child' }) }, 'Add child')),
     editor() && h('p', { class: 'hint' }, 'Tip: drag from the dots on a card to add relatives. Drop on another card to link two people.'),
     !editor() && h('p', { class: 'hint' }, 'You can view this tree and comment. Ask an owner if you’d like to edit it too.'),
     kin.length > 0 && h('section', { class: 'section' }, h('h3', {}, 'Family'), h('ul', { class: 'kin' }, kin)),
@@ -1241,8 +1241,8 @@ function placeField(name, label, value) {
 function formView() {
   const f = V.form;
   const subject = V.selected && V.state.entities.get(V.selected);
-  // A new child or sibling usually shares the surname of the person they're added from.
-  const base = f.type === 'edit' ? subject.data : ['child', 'sibling'].includes(f.relation) ? { surname: subject.data.surname } : {};
+  // A new child usually shares a surname with the parent they're added from.
+  const base = f.type === 'edit' ? subject.data : f.relation === 'child' ? { surname: subject.data.surname } : {};
   const input = (name, label, attrs = {}) => h('label', { class: 'field' }, label, h('input', { name, value: base[name] || '', ...attrs }));
   const photo = h('input', { type: 'file', name: 'photo', accept: 'image/jpeg,image/png,image/webp,image/gif' });
   const { parents, partners, children } = T.relatives(V.state);
@@ -1335,10 +1335,6 @@ async function savePerson(form, subject) {
       const existing = (T.relatives(V.state).parents.get(subject.id) || [])[0];
       if (el.couple?.checked && existing) ops.push(link('partner', { a: existing.id, b: id, type: 'married' }));
       message = `Added ${name} as a parent of ${nameOf(subject)}`;
-    }
-    if (f.relation === 'sibling') {
-      try { ops.push(...T.relateOps(V.state, subject.id, 'sibling', id, () => crypto.randomUUID())); } catch (e) { button.disabled = false; return toast(e.message, 'error'); }
-      message = `Added ${name} as a sibling of ${nameOf(subject)}`;
     }
     if (f.relation === 'partner') {
       ops.push(link('partner', { a: subject.id, b: id, type: el.ptype.value }));
