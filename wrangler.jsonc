@@ -12,7 +12,7 @@
   "send_email": [{ "name": "EMAIL" }],
   "vars": {
     // Sender on a domain onboarded to Cloudflare Email Sending.
-    "MAIL_FROM": "login@example.com",
+    "MAIL_FROM": "ancestree@michaelkato.work",
     "TURNSTILE_SITEKEY": "0x4AAAAAAFeli-0DYiOidWtc"
   },
   "observability": { "enabled": true }
