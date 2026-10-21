@@ -233,6 +233,27 @@ async function getMedia(c) {
   });
 }
 
+// Town, State, Country suggestions for birthplaces, from Photon (OpenStreetMap). Proxied so
+// browsers only talk to us, and cached at the edge since place names rarely change.
+const PLACE_LAYERS = ['city', 'locality', 'district', 'county', 'state', 'country'];
+async function places(c) {
+  const q = (c.url.searchParams.get('q') || '').trim().slice(0, 100);
+  if (q.length < 2) return json({ places: [] });
+  const url = new URL('https://photon.komoot.io/api/');
+  url.searchParams.set('q', q);
+  url.searchParams.set('limit', '8');
+  url.searchParams.set('lang', 'en');
+  for (const l of PLACE_LAYERS) url.searchParams.append('layer', l);
+  const r = await fetch(url, {
+    headers: { 'user-agent': 'Ancestree family tree (+https://ancestree.mkato.workers.dev)' },
+    cf: { cacheTtl: 30 * 86400, cacheEverything: true },
+  });
+  if (!r.ok) throw new HttpError(502, 'Place suggestions are unavailable right now. Type the place instead.');
+  const { features = [] } = await r.json();
+  const labels = features.map(({ properties: p }) => [...new Set([p.name, p.state, p.country].filter(Boolean))].join(', '));
+  return json({ places: [...new Set(labels)].slice(0, 6) }, 200, { 'cache-control': 'private, max-age=86400' });
+}
+
 function sendInvite(c, addr, token) {
   const link = `${c.url.origin}/invite?token=${token}`;
   const who = c.user.name || c.user.email;
@@ -318,6 +339,7 @@ const ROUTES = [
   ['GET', '/api/me', me, 'user'],
   ['PATCH', '/api/me', renameMe, 'user'],
   ['POST', '/api/trees', createTree, 'user'],
+  ['GET', '/api/places', places, 'user'],
   ['POST', '/api/invites/accept', acceptInvite, 'public'],
   ['GET', '/api/trees/:tree', getTree, 'viewer'],
   ['POST', '/api/trees/:tree/changesets', commit, 'editor'],
