@@ -54,16 +54,24 @@ function toast(msg, kind = '') {
 }
 
 // In-app replacement for confirm(): a modal <dialog> that names the action on its button.
-function ask(title, body, action, { danger = false, dismiss = 'Cancel' } = {}) {
+// typeToConfirm: the action stays disabled until that exact text is typed.
+function ask(title, body, action, { danger = false, dismiss = 'Cancel', typeToConfirm } = {}) {
   return new Promise((resolve) => {
+    const yes = h('button', { class: danger ? 'btn danger-solid' : 'btn', value: 'yes', disabled: !!typeToConfirm }, action);
+    const typed = typeToConfirm && h('input', { autocomplete: 'off', spellcheck: 'false',
+      oninput: (ev) => { yes.disabled = ev.target.value.trim() !== typeToConfirm; } });
     const dlg = h('dialog', { class: 'ask', 'aria-labelledby': 'ask-title' },
       h('form', { method: 'dialog', class: 'stack' },
         h('h2', { id: 'ask-title' }, title),
         h('p', {}, body),
-        h('div', { class: 'row' },
-          h('button', { class: danger ? 'btn danger-solid' : 'btn', value: 'yes' }, action),
-          h('button', { class: 'btn quiet', value: 'no', autofocus: true }, dismiss))));
-    dlg.addEventListener('close', () => { dlg.remove(); resolve(dlg.returnValue === 'yes'); });
+        typed && h('label', { class: 'field' }, `Type ${typeToConfirm} to confirm`, typed),
+        h('div', { class: 'row' }, yes,
+          h('button', { class: 'btn quiet', value: 'no', autofocus: !typed }, dismiss))));
+    if (typed) queueMicrotask(() => typed.focus());
+    // Settle on the button press itself rather than the 'close' event, which browsers may defer.
+    const done = (answer) => { dlg.close(); dlg.remove(); resolve(answer); };
+    dlg.querySelector('form').addEventListener('submit', (ev) => { ev.preventDefault(); done(ev.submitter?.value === 'yes'); });
+    dlg.addEventListener('cancel', (ev) => { ev.preventDefault(); done(false); });
     document.body.append(dlg);
     dlg.showModal();
   });
@@ -863,6 +871,7 @@ async function poll() {
     }
   } catch (e) {
     if (e.status === 401) location.assign('/');
+    if (e.status === 404 && cur === V) { toast('This tree was deleted by its owner'); go('/'); }
   } finally {
     cur.polling = false;
   }
@@ -1115,6 +1124,9 @@ function membersView() {
     }, h('h3', {}, 'Invite a relative'), h('label', { class: 'field' }, 'Email address', email), h('label', { class: 'field' }, 'Access', role),
     h('div', {}, h('button', { class: 'btn small' }, 'Send invite'))),
     !isOwner && h('div', {}, h('button', { class: 'btn danger small', onclick: () => removeMember(V.members.find((m) => m.id === me.user.id)) }, 'Leave this tree')),
+    isOwner && h('section', { class: 'section danger-zone' }, h('h3', {}, 'Delete this tree'),
+      h('p', { class: 'hint' }, 'Removes everyone in it, its whole edit history, comments and photos for every member. This can’t be undone.'),
+      h('div', {}, h('button', { class: 'btn danger small', onclick: deleteTree }, 'Delete tree…'))),
   ];
 }
 
@@ -1133,6 +1145,19 @@ async function cancelInvite(i) {
     await api(`/trees/${V.id}/invites/${i.id}`, { method: 'DELETE' });
     V.invites = V.invites.filter((x) => x.id !== i.id);
     renderPanel();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function deleteTree() {
+  const name = V.tree.name;
+  const ok = await ask(`Delete ${name}?`,
+    'Every person, edit, comment, photo and invite in this tree will be permanently deleted for all members. History and Undo can’t bring it back.',
+    'Delete tree forever', { danger: true, dismiss: 'Keep tree', typeToConfirm: name });
+  if (!ok) return;
+  try {
+    await api(`/trees/${V.id}`, { method: 'DELETE' });
+    toast(`Deleted ${name}`);
+    go('/');
   } catch (e) { toast(e.message, 'error'); }
 }
 

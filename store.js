@@ -58,6 +58,22 @@ export async function createTree(db, id, name, userId, now) {
   ]);
 }
 
+// Photos first, then every row in one transaction, so a failure part-way can be retried.
+export async function deleteTree(db, bucket, treeId) {
+  const prefix = `trees/${treeId}/`;
+  let cursor;
+  do {
+    const page = await bucket.list({ prefix, cursor });
+    if (page.objects.length) await bucket.delete(page.objects.map((o) => o.key));
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  const tables = ['revision', 'changeset', 'entity', 'comment', 'media', 'invite', 'member'];
+  await db.batch([
+    ...tables.map((t) => db.prepare(`DELETE FROM ${t} WHERE tree_id = ?`).bind(treeId)),
+    db.prepare('DELETE FROM tree WHERE id = ?').bind(treeId),
+  ]);
+}
+
 export function membership(db, treeId, userId) {
   return db.prepare('SELECT t.id, t.name, t.seq, m.role FROM member m JOIN tree t ON t.id = m.tree_id WHERE m.tree_id = ? AND m.user_id = ?')
     .bind(treeId, userId).first();

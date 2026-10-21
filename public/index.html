@@ -219,6 +219,8 @@ label.field { display: grid; gap: var(--s1); font-size: 14px; font-weight: 600; 
 .ask { border: 0; border-radius: 14px; padding: var(--s5); width: min(420px, calc(100% - 32px)); background: var(--paper); color: var(--ink); box-shadow: 0 24px 60px -20px rgba(6, 18, 44, .7); }
 .ask::backdrop { background: rgba(10, 28, 60, .55); }
 .ask h2 { font-size: 20px; }
+.danger-zone { border-top: 1px solid var(--rule); padding-top: var(--s4); }
+.danger-zone h3 { color: var(--danger); }
 .toast { position: fixed; left: 50%; bottom: var(--s5); transform: translateX(-50%); max-width: min(560px, calc(100% - 32px)); padding: var(--s3) var(--s4); border-radius: 10px; background: var(--ink); color: var(--paper); box-shadow: 0 10px 30px -10px rgba(6, 18, 44, .6); z-index: 10; }
 .toast.error { background: var(--danger); color: #fff; }
 

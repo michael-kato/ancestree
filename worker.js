@@ -119,6 +119,11 @@ async function createTree(c) {
   return json({ tree: { id: treeId, name, seq: 0, role: 'owner' } }, 201);
 }
 
+async function deleteTree(c) {
+  await S.deleteTree(c.env.DB, c.env.MEDIA, c.tree.id);
+  return json({ ok: true });
+}
+
 async function getTree(c) {
   const { db, tree } = { db: c.env.DB, tree: c.tree };
   // tree.seq was read before entities, so polling from it never misses a change.
@@ -342,6 +347,7 @@ const ROUTES = [
   ['GET', '/api/places', places, 'user'],
   ['POST', '/api/invites/accept', acceptInvite, 'public'],
   ['GET', '/api/trees/:tree', getTree, 'viewer'],
+  ['DELETE', '/api/trees/:tree', deleteTree, 'owner'],
   ['POST', '/api/trees/:tree/changesets', commit, 'editor'],
   ['GET', '/api/trees/:tree/log', log, 'viewer'],
   ['GET', '/api/trees/:tree/changes', changes, 'viewer'],
