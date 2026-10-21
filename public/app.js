@@ -3,6 +3,7 @@ import * as d3 from 'https://cdn.jsdelivr.net/npm/d3@7.9.0/+esm';
 import * as T from './tree.js';
 
 const NODE_W = 188, NODE_H = 58, UNION = 8, PHOTO = 40, COUPLE_GAP = 28;
+const BAR_BASE = 14, BAR_STEP = 9, BAR_GAP = 12, MAX_TRACKS = 4; // sibling bar heights above the child row
 const POLL_MS = 5000;
 const STEP_MS = 900; // one replay step at 1x
 const YEAR_MS = 220; // one generations year at 1x
@@ -271,7 +272,7 @@ function buildWorkspace() {
 const ELK_OPTIONS = {
   'elk.algorithm': 'layered',
   'elk.direction': 'DOWN',
-  'elk.layered.spacing.nodeNodeBetweenLayers': '44',
+  'elk.layered.spacing.nodeNodeBetweenLayers': '60', // room for MAX_TRACKS sibling bars
   'elk.spacing.nodeNode': '26',
   'elk.spacing.componentComponent': '60',
   'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
@@ -371,7 +372,7 @@ async function draw({ highlight = new Set(), duration = 450, fit = false } = {})
 
   // Partner lines join couples at mid-height; descent lines drop from the middle of that line
   // (or from a lone parent) to each child. Each kind keeps one path shape so it tweens.
-  const edgeData = [];
+  const edgeData = [], descents = [];
   for (const u of g.unions) {
     const P = u.parents.map((p) => pos.get(p));
     const together = u.parents.every((p) => inBlock.get(p) === inBlock.get(u.parents[0]));
@@ -392,11 +393,20 @@ async function draw({ highlight = new Set(), duration = 450, fit = false } = {})
         edgeData.push({ id: `${p}>${u.id}`, d: `M${x},${y}V${(y + sy) / 2}H${sx}V${sy}` });
       });
     }
-    for (const c of u.children) {
-      const C = pos.get(c), x = C.x + NODE_W / 2, y = C.y;
-      const kinds = (parentsOf.get(c) || []).filter((r) => u.parents.includes(r.id)).map((r) => r.type);
-      const bar = y - 18;
-      edgeData.push({ id: `${u.id}>${c}`, d: `M${sx},${sy}V${bar}H${x}V${y}`, chosen: kinds.length > 0 && !kinds.includes('birth') });
+    descents.push({
+      u, sx, sy,
+      kids: u.children.map((c) => {
+        const C = pos.get(c);
+        const kinds = (parentsOf.get(c) || []).filter((r) => u.parents.includes(r.id)).map((r) => r.type);
+        return { c, x: C.x + NODE_W / 2, y: C.y, chosen: kinds.length > 0 && !kinds.includes('birth') };
+      }),
+    });
+  }
+  const tracks = siblingTracks(descents);
+  for (const dsc of descents) {
+    const lift = BAR_BASE + tracks.get(dsc) * BAR_STEP;
+    for (const k of dsc.kids) {
+      edgeData.push({ id: `${dsc.u.id}>${k.c}`, d: `M${dsc.sx},${dsc.sy}V${k.y - lift}H${k.x}V${k.y}`, chosen: k.chosen });
     }
   }
   V.el.edges.selectAll('path').data(edgeData, (d) => d.id).join(
@@ -459,6 +469,29 @@ function ensureVisible(id) {
   if (x >= margin && y >= margin && x + NODE_W * tr.k <= width - margin && y + NODE_H * tr.k <= height - margin) return;
   const next = d3.zoomIdentity.translate(width / 2 - (p.x + NODE_W / 2) * tr.k, height / 2 - (p.y + NODE_H / 2) * tr.k).scale(tr.k);
   V.el.svg.transition().duration(reduceMotion ? 0 : 450).call(V.zoom.transform, next);
+}
+
+// Sibling bars of different families between the same two generations would sit on one line
+// and read as one family; give families whose bars overlap horizontally separate heights.
+function siblingTracks(descents) {
+  const tracks = new Map(), byLayer = new Map();
+  for (const d of descents) {
+    const xs = [d.sx, ...d.kids.map((k) => k.x)];
+    d.span = [Math.min(...xs), Math.max(...xs)];
+    const layer = Math.round(Math.min(...d.kids.map((k) => k.y)));
+    if (!byLayer.has(layer)) byLayer.set(layer, []);
+    byLayer.get(layer).push(d);
+  }
+  for (const group of byLayer.values()) {
+    const ends = []; // rightmost x used on each track
+    for (const d of group.sort((a, b) => a.span[0] - b.span[0])) {
+      let t = ends.findIndex((end) => end + BAR_GAP < d.span[0]);
+      if (t < 0 || t >= MAX_TRACKS) t = ends.length < MAX_TRACKS ? ends.length : ends.indexOf(Math.min(...ends));
+      ends[t] = Math.max(ends[t] ?? -Infinity, d.span[1]);
+      tracks.set(d, t);
+    }
+  }
+  return tracks;
 }
 
 function fitView(layout, duration) {
