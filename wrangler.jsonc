@@ -7,7 +7,7 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*"]
   },
-  "d1_databases": [{ "binding": "DB", "database_name": "ancestree", "database_id": "f2ba9ec8-b346-4997-bcc1-398884a1b257" }],
+  "d1_databases": [{ "binding": "DB", "database_name": "ancestree-db", "database_id": "cf24e98f-0728-4347-a4a1-0e8e50672754" }],
   "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "ancestree-media" }],
   "send_email": [{ "name": "EMAIL" }],
   "vars": {

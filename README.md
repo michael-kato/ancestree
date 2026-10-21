@@ -7,7 +7,7 @@ A family tree your whole family edits together: a visual node tree, accounts, fu
 ```bash
 npm install
 cp .dev.vars.example .dev.vars          # Turnstile test keys
-npx wrangler d1 migrations apply ancestree --local
+npx wrangler d1 migrations apply ancestree-db --local
 npx wrangler dev                         # http://localhost:8787
 ```
 
@@ -16,11 +16,11 @@ Sign-in links are emailed. Locally, wrangler writes each email to a text file un
 ## Deploy
 
 ```bash
-npx wrangler d1 create ancestree         # paste database_id into wrangler.jsonc
+npx wrangler d1 create ancestree-db         # paste database_id into wrangler.jsonc
 npx wrangler r2 bucket create ancestree-media
 npx wrangler email sending enable yourdomain.com
 npx wrangler secret put TURNSTILE_SECRET
-npx wrangler d1 migrations apply ancestree --remote
+npx wrangler d1 migrations apply ancestree-db --remote
 npx wrangler deploy
 ```
 
