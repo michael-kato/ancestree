@@ -2,6 +2,8 @@
   "name": "ancestree",
   "main": "worker.js",
   "compatibility_date": "2026-10-01",
+  "routes": [{ "pattern": "ancestree.michaelkato.work", "custom_domain": true }],
+  "workers_dev": true, // keep the old address working
   "assets": {
     "directory": "./public",
     "not_found_handling": "single-page-application",

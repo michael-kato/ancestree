@@ -250,7 +250,7 @@ async function places(c) {
   url.searchParams.set('lang', 'en');
   for (const l of PLACE_LAYERS) url.searchParams.append('layer', l);
   const r = await fetch(url, {
-    headers: { 'user-agent': 'Ancestree family tree (+https://ancestree.mkato.workers.dev)' },
+    headers: { 'user-agent': 'Ancestree family tree (+https://ancestree.michaelkato.work)' },
     cf: { cacheTtl: 30 * 86400, cacheEverything: true },
   });
   if (!r.ok) throw new HttpError(502, 'Place suggestions are unavailable right now. Type the place instead.');
