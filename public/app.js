@@ -276,7 +276,7 @@ function buildWorkspace() {
   const modeBtn = (mode, label) => h('button', { 'aria-pressed': String(V.mode === mode), onclick: () => setMode(mode) }, label);
   V.el = {};
   V.el.modes = h('div', { class: 'modes', role: 'group', 'aria-label': 'View' },
-    modeBtn('live', 'Tree'), modeBtn('replay', 'Replay edits'), modeBtn('generations', 'Generations'));
+    modeBtn('live', 'Tree'), modeBtn('replay', 'Edits'), modeBtn('generations', 'Generations'));
   V.el.svg = d3.create('svg').attr('aria-label', `Family tree: ${V.tree.name}`);
   V.el.svg.append('defs').html('<clipPath id="avatar" clipPathUnits="objectBoundingBox"><circle cx=".5" cy=".5" r=".5"/></clipPath>');
   V.el.view = V.el.svg.append('g');
@@ -1059,7 +1059,7 @@ function historyView() {
       h('p', {}, cs.message),
       h('p', { class: 'meta' }, `${cs.user_name || 'Someone'}, ${when.format(cs.created_at)}`),
       h('div', { class: 'row' },
-        h('button', { class: 'link', onclick: async () => { await setMode('replay'); seek(i, 300); } }, 'Show in replay'),
+        h('button', { class: 'link', onclick: async () => { await setMode('replay'); seek(i, 300); } }, 'Show in Edits'),
         editor() && h('button', { class: 'link', onclick: () => undo(i) }, 'Undo'))));
   }
   return [h('p', { class: 'hint' }, `${log.length} edits. Undo adds a new edit, so nothing is ever lost.`), h('ul', { class: 'history' }, items)];
