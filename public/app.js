@@ -47,6 +47,22 @@ function toast(msg, kind = '') {
   toastTimer = setTimeout(() => (el.hidden = true), kind === 'error' ? 7000 : 3500);
 }
 
+// In-app replacement for confirm(): a modal <dialog> that names the action on its button.
+function ask(title, body, action, { danger = false } = {}) {
+  return new Promise((resolve) => {
+    const dlg = h('dialog', { class: 'ask', 'aria-labelledby': 'ask-title' },
+      h('form', { method: 'dialog', class: 'stack' },
+        h('h2', { id: 'ask-title' }, title),
+        h('p', {}, body),
+        h('div', { class: 'row' },
+          h('button', { class: danger ? 'btn danger-solid' : 'btn', value: 'yes' }, action),
+          h('button', { class: 'btn quiet', value: 'no', autofocus: true }, 'Cancel'))));
+    dlg.addEventListener('close', () => { dlg.remove(); resolve(dlg.returnValue === 'yes'); });
+    document.body.append(dlg);
+    dlg.showModal();
+  });
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 const rel = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
@@ -620,7 +636,7 @@ async function restoreToFrame() {
   const target = V.replayer.at(V.frame);
   const ops = T.revertOps(V.state, target);
   if (!ops.length) return toast('The tree already looks like this step');
-  if (!confirm(`Restore the tree to how it looked at step ${V.frame}? This adds a new edit, so you can undo it later.`)) return;
+  if (!(await ask(`Restore the tree to step ${V.frame}?`, 'The tree will look the way it did at this step. This is saved as a new edit, so you can undo it later.', 'Restore tree'))) return;
   if (await commit(`Restored tree to step ${V.frame}`, ops)) setMode('live');
 }
 
@@ -734,7 +750,7 @@ function personView() {
 }
 
 async function removePerson(p) {
-  if (!confirm(`Remove ${nameOf(p)} and their relationships from the tree? You can undo this from History.`)) return;
+  if (!(await ask(`Remove ${nameOf(p)}?`, `${nameOf(p)} and their relationships will be removed from the tree. You can undo this from History.`, 'Remove from tree', { danger: true }))) return;
   if (await commit(`Removed ${nameOf(p)}`, T.deleteOps(V.state, p.id))) select(null);
 }
 
@@ -826,7 +842,7 @@ function editNote(wrap, n) {
 }
 
 async function deleteNote(n) {
-  if (!confirm('Delete this comment?')) return;
+  if (!(await ask('Delete this comment?', 'Nobody will be able to read it any more.', 'Delete comment', { danger: true }))) return;
   try {
     await api(`/trees/${V.id}/comments/${n.id}`, { method: 'DELETE' });
     n.deleted_at = Date.now();
@@ -893,7 +909,10 @@ async function changeRole(m, role) {
 
 async function removeMember(m) {
   const self = m.id === me.user.id;
-  if (!confirm(self ? 'Leave this tree? You’ll need a new invite to come back.' : `Remove ${m.name || m.email} from this tree?`)) return;
+  const ok = self
+    ? await ask('Leave this tree?', 'You’ll need a new invite to come back.', 'Leave tree', { danger: true })
+    : await ask(`Remove ${m.name || m.email}?`, 'They’ll lose access to this tree. Their edits and comments stay.', 'Remove member', { danger: true });
+  if (!ok) return;
   try {
     await api(`/trees/${V.id}/members/${m.id}`, { method: 'DELETE' });
     if (self) return go('/');
