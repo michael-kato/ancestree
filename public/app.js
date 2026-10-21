@@ -231,6 +231,7 @@ async function treeScreen(treeId) {
     mode: 'live', frame: 0, year: null, playing: false, speed: 1,
     selected: null, tab: 'chat', form: null,
     comments: new Map(), drawn: null, drawToken: 0, fitted: false,
+    counts: new Map(Object.entries(data.comment_counts)), loadedAt: data.now, noteLive: new Map(),
   };
   buildWorkspace();
   draw({ fit: true });
@@ -435,14 +436,17 @@ async function draw({ highlight = new Set(), duration = 450, fit = false } = {})
         s.append('image').attr('x', 9).attr('y', 9).attr('width', PHOTO).attr('height', PHOTO).attr('clip-path', 'url(#avatar)').attr('preserveAspectRatio', 'xMidYMid slice');
         s.append('text').attr('class', 'name').attr('y', 25);
         s.append('text').attr('class', 'years').attr('y', 43);
+        const b = s.append('g').attr('class', 'badge').attr('transform', `translate(${NODE_W - 4},4)`);
+        b.append('circle').attr('r', 11);
+        b.append('text').attr('text-anchor', 'middle').attr('dy', 4);
       })
       .call((s) => s.transition(t).attr('opacity', 1)),
     (update) => update.call((s) => s.transition(t).attr('transform', at).attr('opacity', 1)),
     (exit) => exit.call((s) => s.transition(t).attr('opacity', 0).remove()),
   ).each(function (d) {
     const g = d3.select(this), photo = d.data.photo, x = photo ? 58 : 14;
-    g.attr('aria-label', `${nameOf(d)}${T.lifespan(d.data) ? ', ' + T.lifespan(d.data) : ''}`)
-      .classed('selected', d.id === V.selected);
+    g.classed('selected', d.id === V.selected);
+    setBadge(g, d);
     g.select('image').attr('href', photo ? `/api/trees/${V.id}/media/${photo}` : null).attr('display', photo ? null : 'none');
     const years = T.lifespan(d.data);
     g.select('.name').attr('x', x).attr('y', years ? 25 : NODE_H / 2 + 5).text(clip(nameOf(d), photo ? 17 : 21));
@@ -492,6 +496,24 @@ function siblingTracks(descents) {
     }
   }
   return tracks;
+}
+
+function setBadge(g, d) {
+  const n = V.counts.get(d.id) || 0, years = T.lifespan(d.data);
+  g.attr('aria-label', [nameOf(d), years, n && `${n} ${n === 1 ? 'comment' : 'comments'}`].filter(Boolean).join(', '));
+  g.select('.badge').attr('display', n ? null : 'none').select('text').text(n > 99 ? '99+' : n);
+}
+
+// Keeps per-person comment counts current. Comments created before the tree loaded were
+// already in the server's count; anything newer is counted the first time it's seen.
+function countNote(n) {
+  if (!n.target_id) return;
+  const live = !n.deleted_at;
+  const was = V.noteLive.get(n.id) ?? n.created_at <= V.loadedAt;
+  V.noteLive.set(n.id, live);
+  if (live === was) return;
+  V.counts.set(n.target_id, (V.counts.get(n.target_id) || 0) + (live ? 1 : -1));
+  V.el.people.selectAll('g.person').filter((d) => d.id === n.target_id).each(function (d) { setBadge(d3.select(this), d); });
 }
 
 function fitView(layout, duration) {
@@ -725,6 +747,7 @@ function ingest(changesets, notes) {
     if (!V.form) renderPanel();
   }
   for (const n of notes) {
+    countNote(n);
     const key = n.target_id || '';
     const list = V.comments.get(key);
     if (!list) continue;
@@ -850,6 +873,7 @@ function composer(targetId, parentId, placeholder, onCancel) {
         const { comment } = await api(`/trees/${V.id}/comments`, { method: 'POST', body: { target: targetId, parent: parentId, body: text.value } });
         const list = V.comments.get(targetId || '');
         if (!list.some((x) => x.id === comment.id)) list.push(comment);
+        countNote(comment);
         renderPanel();
       } catch (e) { toast(e.message, 'error'); }
     },
@@ -879,6 +903,7 @@ async function deleteNote(n) {
   try {
     await api(`/trees/${V.id}/comments/${n.id}`, { method: 'DELETE' });
     n.deleted_at = Date.now();
+    countNote(n);
     renderPanel();
   } catch (e) { toast(e.message, 'error'); }
 }

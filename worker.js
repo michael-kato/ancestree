@@ -122,9 +122,10 @@ async function createTree(c) {
 async function getTree(c) {
   const { db, tree } = { db: c.env.DB, tree: c.tree };
   // tree.seq was read before entities, so polling from it never misses a change.
-  const [people, entities] = await Promise.all([S.members(db, tree.id), S.entities(db, tree.id)]);
+  const [people, entities, counts] = await Promise.all([S.members(db, tree.id), S.entities(db, tree.id), S.commentCounts(db, tree.id)]);
   const members = people.map((m) => (tree.role === 'owner' ? m : { id: m.id, name: m.name, role: m.role }));
-  return json({ tree: { id: tree.id, name: tree.name, seq: tree.seq }, role: tree.role, members, entities });
+  // now lets the client tell comments counted here from ones created after this response.
+  return json({ tree: { id: tree.id, name: tree.name, seq: tree.seq }, role: tree.role, members, entities, comment_counts: counts, now: c.now });
 }
 
 async function commit(c) {

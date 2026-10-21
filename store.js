@@ -185,6 +185,14 @@ export async function commentsSince(db, treeId, since, limit) {
   return results;
 }
 
+// Live comments per person (the family chat, target NULL, isn't counted).
+export async function commentCounts(db, treeId) {
+  const { results } = await db.prepare(
+    'SELECT target_id, COUNT(*) AS n FROM comment WHERE tree_id = ? AND target_id IS NOT NULL AND deleted_at IS NULL GROUP BY target_id',
+  ).bind(treeId).all();
+  return Object.fromEntries(results.map((r) => [r.target_id, r.n]));
+}
+
 export function comment(db, treeId, id) {
   return db.prepare('SELECT id, user_id, deleted_at FROM comment WHERE tree_id = ? AND id = ?').bind(treeId, id).first();
 }
