@@ -909,7 +909,7 @@ const threadKey = () => (V.tab === 'person' ? V.selected : V.tab === 'chat' ? ''
 function renderPanel() {
   const tabs = [
     V.selected && ['person', V.state.entities.get(V.selected)?.data.given || nameOf(V.state.entities.get(V.selected))],
-    ['chat', 'Family chat'], ['history', 'History'], ['members', 'Members'],
+    ['chat', 'Chat'], ['history', 'History'], ['members', 'Members'],
   ].filter(Boolean);
   V.el.tabs.replaceChildren(...tabs.map(([key, label]) => h('button', {
     // The first-person form belongs to no tab.
@@ -959,7 +959,7 @@ async function removePerson(p) {
 function chatView() {
   return [
     h('p', { class: 'hint' }, 'Talk about the family with everyone in this tree. Select a person to comment on them.'),
-    threadSection(null, 'Family chat', 'Write a message to the family'),
+    threadSection(null, 'Chat', 'Write a message to the family'),
   ];
 }
 
