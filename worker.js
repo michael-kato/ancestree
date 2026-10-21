@@ -123,7 +123,7 @@ async function getTree(c) {
   const { db, tree } = { db: c.env.DB, tree: c.tree };
   // tree.seq was read before entities, so polling from it never misses a change.
   const [people, entities, counts] = await Promise.all([S.members(db, tree.id), S.entities(db, tree.id), S.commentCounts(db, tree.id)]);
-  const members = people.map((m) => (tree.role === 'owner' ? m : { id: m.id, name: m.name, role: m.role }));
+  const members = visibleMembers(people, tree.role);
   // now lets the client tell comments counted here from ones created after this response.
   return json({ tree: { id: tree.id, name: tree.name, seq: tree.seq }, role: tree.role, members, entities, comment_counts: counts, now: c.now });
 }
@@ -233,16 +233,48 @@ async function getMedia(c) {
   });
 }
 
+function sendInvite(c, addr, token) {
+  const link = `${c.url.origin}/invite?token=${token}`;
+  const who = c.user.name || c.user.email;
+  return S.sendMail(c.env, addr, `${who} invited you to ${c.tree.name} on Ancestree`,
+    `${who} invited you to the family tree "${c.tree.name}" on Ancestree.\n\nOpen this link to join. No password needed:\n${link}\n\nThe link works once and expires in 14 days.`);
+}
+
 async function invite(c) {
   const addr = email(c.body.email);
   const r = role(c.body.role || 'editor', ['editor', 'viewer']);
+  if ((await S.members(c.env.DB, c.tree.id)).some((m) => m.email === addr)) throw new HttpError(400, `${addr} is already in this tree`);
   const token = newToken();
-  await S.addInvite(c.env.DB, await hash(token), c.tree.id, addr, r, c.user.id, c.now + INVITE_MS);
-  const link = `${c.url.origin}/invite?token=${token}`;
-  const who = c.user.name || c.user.email;
-  await S.sendMail(c.env, addr, `${who} invited you to ${c.tree.name} on Ancestree`,
-    `${who} invited you to the family tree "${c.tree.name}" on Ancestree.\n\nOpen this link to join. No password needed:\n${link}\n\nThe link works once and expires in 14 days.`);
-  return json({ ok: true }, 201);
+  const inv = { id: crypto.randomUUID(), email: addr, role: r, expires_at: c.now + INVITE_MS };
+  await S.addInvite(c.env.DB, inv.id, await hash(token), c.tree.id, addr, r, c.user.id, inv.expires_at);
+  await sendInvite(c, addr, token);
+  return json({ invite: inv }, 201);
+}
+
+// A fresh token, so a lost or expired email can be replaced; the old link stops working.
+async function resendInvite(c) {
+  const inv = await S.inviteById(c.env.DB, c.tree.id, c.params.id);
+  if (!inv) throw new HttpError(404, 'That invite was already used or cancelled');
+  const token = newToken();
+  const expires = c.now + INVITE_MS;
+  await S.renewInvite(c.env.DB, c.tree.id, inv.id, await hash(token), expires);
+  await sendInvite(c, inv.email, token);
+  return json({ invite: { ...inv, expires_at: expires } });
+}
+
+async function cancelInvite(c) {
+  await S.deleteInvite(c.env.DB, c.tree.id, c.params.id);
+  return json({ ok: true });
+}
+
+// Only owners see members' email addresses.
+const visibleMembers = (people, role) => people.map((m) => (role === 'owner' ? m : { id: m.id, name: m.name, role: m.role }));
+
+async function listMembers(c) {
+  return json({
+    members: visibleMembers(await S.members(c.env.DB, c.tree.id), c.tree.role),
+    invites: c.tree.role === 'owner' ? await S.pendingInvites(c.env.DB, c.tree.id, c.now) : [],
+  });
 }
 
 // The invite link was emailed to inv.email, so it proves that address like a sign-in link does.
@@ -297,7 +329,10 @@ const ROUTES = [
   ['DELETE', '/api/trees/:tree/comments/:id', deleteComment, 'viewer'],
   ['POST', '/api/trees/:tree/media', uploadMedia, 'editor'],
   ['GET', '/api/trees/:tree/media/:id', getMedia, 'viewer'],
+  ['GET', '/api/trees/:tree/members', listMembers, 'viewer'],
   ['POST', '/api/trees/:tree/invites', invite, 'owner'],
+  ['POST', '/api/trees/:tree/invites/:id/resend', resendInvite, 'owner'],
+  ['DELETE', '/api/trees/:tree/invites/:id', cancelInvite, 'owner'],
   ['PATCH', '/api/trees/:tree/members/:user', changeRole, 'owner'],
   ['DELETE', '/api/trees/:tree/members/:user', removeMember, 'viewer'],
 ].map(([method, path, handler, access]) => ({

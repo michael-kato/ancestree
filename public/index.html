@@ -69,7 +69,7 @@ a { color: inherit; }
 .btn.quiet { background: transparent; color: var(--ink); border-color: var(--rule); }
 .btn.danger { background: transparent; color: var(--danger); border-color: currentColor; }
 .btn.quiet:hover, .btn.danger:hover { filter: none; background: var(--paper-2); }
-.btn.danger-solid { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn.danger-solid { background: var(--danger); border-color: var(--danger); color: var(--paper); }
 .btn.small { min-height: 32px; padding: 0 var(--s3); font-size: 14px; }
 .btn:disabled { opacity: .5; cursor: default; }
 .link { background: none; border: 0; padding: 0; color: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; justify-self: start; }
@@ -188,6 +188,7 @@ label.field { display: grid; gap: var(--s1); font-size: 14px; font-weight: 600; 
 .history .meta { font-size: 14px; color: var(--ink-soft); }
 .members { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--s3); }
 .members li { display: flex; gap: var(--s3); align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.members select { padding: 6px 8px; border: 1.5px solid var(--rule); border-radius: 8px; background: var(--paper); color: var(--ink); }
 
 .ask { border: 0; border-radius: 14px; padding: var(--s5); width: min(420px, calc(100% - 32px)); background: var(--paper); color: var(--ink); box-shadow: 0 24px 60px -20px rgba(6, 18, 44, .7); }
 .ask::backdrop { background: rgba(10, 28, 60, .55); }

@@ -5,6 +5,7 @@ import * as T from './tree.js';
 const NODE_W = 188, NODE_H = 58, UNION = 8, PHOTO = 40, COUPLE_GAP = 28;
 const BAR_BASE = 14, BAR_STEP = 9, BAR_GAP = 12, MAX_TRACKS = 4; // sibling bar heights above the child row
 const POLL_MS = 5000;
+const ROLE_WORD = { owner: 'Owner', editor: 'Can edit', viewer: 'Can view' };
 const STEP_MS = 900; // one replay step at 1x
 const YEAR_MS = 220; // one generations year at 1x
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -49,7 +50,7 @@ function toast(msg, kind = '') {
 }
 
 // In-app replacement for confirm(): a modal <dialog> that names the action on its button.
-function ask(title, body, action, { danger = false } = {}) {
+function ask(title, body, action, { danger = false, dismiss = 'Cancel' } = {}) {
   return new Promise((resolve) => {
     const dlg = h('dialog', { class: 'ask', 'aria-labelledby': 'ask-title' },
       h('form', { method: 'dialog', class: 'stack' },
@@ -57,7 +58,7 @@ function ask(title, body, action, { danger = false } = {}) {
         h('p', {}, body),
         h('div', { class: 'row' },
           h('button', { class: danger ? 'btn danger-solid' : 'btn', value: 'yes' }, action),
-          h('button', { class: 'btn quiet', value: 'no', autofocus: true }, 'Cancel'))));
+          h('button', { class: 'btn quiet', value: 'no', autofocus: true }, dismiss))));
     dlg.addEventListener('close', () => { dlg.remove(); resolve(dlg.returnValue === 'yes'); });
     document.body.append(dlg);
     dlg.showModal();
@@ -186,13 +187,12 @@ function nameScreen() {
 
 function treesScreen() {
   const name = h('input', { required: true, maxlength: 80 });
-  const roleWord = { owner: 'Owner', editor: 'Can edit', viewer: 'Can view' };
   frontScreen(
     h('div', { class: 'sheet' },
       h('h2', {}, 'Your family trees'),
       me.trees.length
         ? h('ul', { class: 'tree-list' }, me.trees.map((t) => h('li', {}, h('a', { href: `/t/${t.id}`, onclick: (ev) => { ev.preventDefault(); go(`/t/${t.id}`); } },
-          h('span', { class: 'tree-name' }, t.name), h('span', { class: 'role' }, roleWord[t.role])))))
+          h('span', { class: 'tree-name' }, t.name), h('span', { class: 'role' }, ROLE_WORD[t.role])))))
         : h('p', {}, 'You’re not in any family trees yet. Start one, or ask a relative to invite you.'),
       h('form', {
         class: 'stack', onsubmit: async (ev) => {
@@ -232,6 +232,7 @@ async function treeScreen(treeId) {
     selected: null, tab: 'chat', form: null,
     comments: new Map(), drawn: null, drawToken: 0, fitted: false,
     counts: new Map(Object.entries(data.comment_counts)), loadedAt: data.now, noteLive: new Map(),
+    invites: [], membersFresh: false,
   };
   buildWorkspace();
   draw({ fit: true });
@@ -436,7 +437,7 @@ async function draw({ highlight = new Set(), duration = 450, fit = false } = {})
         s.append('image').attr('x', 9).attr('y', 9).attr('width', PHOTO).attr('height', PHOTO).attr('clip-path', 'url(#avatar)').attr('preserveAspectRatio', 'xMidYMid slice');
         s.append('text').attr('class', 'name').attr('y', 25);
         s.append('text').attr('class', 'years').attr('y', 43);
-        const b = s.append('g').attr('class', 'badge').attr('transform', `translate(${NODE_W - 4},4)`);
+        const b = s.append('g').attr('class', 'badge').attr('aria-hidden', 'true').attr('transform', `translate(${NODE_W - 4},4)`);
         b.append('circle').attr('r', 11);
         b.append('text').attr('text-anchor', 'middle').attr('dy', 4);
       })
@@ -501,7 +502,7 @@ function siblingTracks(descents) {
 function setBadge(g, d) {
   const n = V.counts.get(d.id) || 0, years = T.lifespan(d.data);
   g.attr('aria-label', [nameOf(d), years, n && `${n} ${n === 1 ? 'comment' : 'comments'}`].filter(Boolean).join(', '));
-  g.select('.badge').attr('display', n ? null : 'none').select('text').text(n > 99 ? '99+' : n);
+  g.select('.badge').attr('display', n ? null : 'none').select('text').text(n > 99 ? '99+' : n || '');
 }
 
 // Keeps per-person comment counts current. Comments created before the tree loaded were
@@ -769,7 +770,7 @@ function renderPanel() {
   V.el.tabs.replaceChildren(...tabs.map(([key, label]) => h('button', {
     // The first-person form belongs to no tab.
     role: 'tab', 'aria-selected': String(V.tab === key && V.form?.relation !== 'first'),
-    onclick: () => { V.tab = key; V.form = null; renderPanel(); },
+    onclick: () => { V.tab = key; V.form = null; if (key === 'members') V.membersFresh = false; renderPanel(); },
   }, clip(label, 18))));
   const body = V.form ? formView() : { person: personView, chat: chatView, history: historyView, members: membersView }[V.tab]();
   fill(V.el.body, body);
@@ -935,30 +936,68 @@ async function undo(step) {
   if (await commit(`Undid “${cs.message}”`, ops)) toast('Undone');
 }
 
+// Members and invites change on other people's devices (an invite gets accepted), so refetch on open.
+function refreshMembers() {
+  V.membersFresh = true;
+  api(`/trees/${V.id}/members`).then(({ members, invites }) => {
+    Object.assign(V, { members, invites });
+    if (V.tab === 'members' && !V.form) renderPanel();
+  }, (e) => toast(e.message, 'error'));
+}
+
 function membersView() {
+  if (!V.membersFresh) refreshMembers();
   const isOwner = V.role === 'owner';
-  const roleWord = { owner: 'Owner', editor: 'Can edit', viewer: 'Can view' };
   const list = h('ul', { class: 'members' }, V.members.map((m) => h('li', {},
     h('div', {}, h('strong', {}, m.name || m.email || 'Someone'), m.id === me.user.id && ' (you)', m.email && isOwner && h('div', { class: 'hint' }, m.email)),
     isOwner && m.id !== me.user.id
       ? h('div', { class: 'row' },
         h('select', { 'aria-label': `Access for ${m.name}`, onchange: (ev) => changeRole(m, ev.target.value) },
-          ['owner', 'editor', 'viewer'].map((r) => h('option', { value: r, selected: m.role === r }, roleWord[r]))),
+          ['owner', 'editor', 'viewer'].map((r) => h('option', { value: r, selected: m.role === r }, ROLE_WORD[r]))),
         h('button', { class: 'link', onclick: () => removeMember(m) }, 'Remove'))
-      : h('span', { class: 'hint' }, roleWord[m.role]))));
+      : h('span', { class: 'hint' }, ROLE_WORD[m.role]))));
   const email = h('input', { type: 'email', required: true, placeholder: 'cousin@example.com' });
   const role = h('select', {}, h('option', { value: 'editor' }, 'Can edit'), h('option', { value: 'viewer' }, 'Can view'));
   return [
     h('section', { class: 'section' }, h('h3', {}, 'People in this tree'), list),
+    isOwner && V.invites.length > 0 && h('section', { class: 'section' }, h('h3', {}, 'Waiting to join'),
+      h('ul', { class: 'members' }, V.invites.map((i) => h('li', {},
+        h('div', {}, h('strong', {}, i.email), h('div', { class: 'hint' }, `${ROLE_WORD[i.role]}, invite expires ${rel.format(Math.ceil((i.expires_at - Date.now()) / 86_400_000), 'day')}`)),
+        h('div', { class: 'row' },
+          h('button', { class: 'link', onclick: () => resendInvite(i) }, 'Resend'),
+          h('button', { class: 'link', onclick: () => cancelInvite(i) }, 'Cancel invite')))))),
     isOwner && h('form', {
       class: 'section', onsubmit: async (ev) => {
         ev.preventDefault();
-        try { await api(`/trees/${V.id}/invites`, { method: 'POST', body: { email: email.value, role: role.value } }); toast(`Invite sent to ${email.value.trim()}`); email.value = ''; } catch (e) { toast(e.message, 'error'); }
+        try {
+          const { invite } = await api(`/trees/${V.id}/invites`, { method: 'POST', body: { email: email.value, role: role.value } });
+          V.invites = [...V.invites.filter((i) => i.email !== invite.email), invite].sort((a, b) => a.email.localeCompare(b.email));
+          toast(`Invite sent to ${invite.email}`);
+          renderPanel();
+        } catch (e) { toast(e.message, 'error'); }
       },
     }, h('h3', {}, 'Invite a relative'), h('label', { class: 'field' }, 'Email address', email), h('label', { class: 'field' }, 'Access', role),
     h('div', {}, h('button', { class: 'btn small' }, 'Send invite'))),
     !isOwner && h('div', {}, h('button', { class: 'btn danger small', onclick: () => removeMember(V.members.find((m) => m.id === me.user.id)) }, 'Leave this tree')),
   ];
+}
+
+async function resendInvite(i) {
+  try {
+    const { invite } = await api(`/trees/${V.id}/invites/${i.id}/resend`, { method: 'POST', body: {} });
+    Object.assign(i, invite);
+    toast(`Invite sent again to ${i.email}. The earlier link no longer works.`);
+    renderPanel();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function cancelInvite(i) {
+  if (!(await ask(`Cancel the invite to ${i.email}?`, 'The link in their email will stop working.', 'Cancel invite', { danger: true, dismiss: 'Keep invite' }))) return;
+  try {
+    await api(`/trees/${V.id}/invites/${i.id}`, { method: 'DELETE' });
+    V.invites = V.invites.filter((x) => x.id !== i.id);
+    renderPanel();
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 async function changeRole(m, role) {

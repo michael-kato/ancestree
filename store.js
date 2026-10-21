@@ -83,9 +83,31 @@ export function removeMember(db, treeId, userId) {
   return db.prepare('DELETE FROM member WHERE tree_id = ? AND user_id = ?').bind(treeId, userId).run();
 }
 
-export function addInvite(db, tokenHash, treeId, email, role, invitedBy, expiresAt) {
-  return db.prepare('INSERT INTO invite (token_hash, tree_id, email, role, invited_by, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .bind(tokenHash, treeId, email, role, invitedBy, expiresAt).run();
+// Replaces any earlier invite to the same address, so each person has one pending invite.
+export async function addInvite(db, id, tokenHash, treeId, email, role, invitedBy, expiresAt) {
+  await db.batch([
+    db.prepare('DELETE FROM invite WHERE tree_id = ? AND email = ?').bind(treeId, email),
+    db.prepare('INSERT INTO invite (id, token_hash, tree_id, email, role, invited_by, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(id, tokenHash, treeId, email, role, invitedBy, expiresAt),
+  ]);
+}
+
+export async function pendingInvites(db, treeId, now) {
+  const { results } = await db.prepare('SELECT id, email, role, expires_at FROM invite WHERE tree_id = ? AND expires_at > ? ORDER BY email')
+    .bind(treeId, now).all();
+  return results;
+}
+
+export function inviteById(db, treeId, id) {
+  return db.prepare('SELECT id, email, role FROM invite WHERE tree_id = ? AND id = ?').bind(treeId, id).first();
+}
+
+export function renewInvite(db, treeId, id, tokenHash, expiresAt) {
+  return db.prepare('UPDATE invite SET token_hash = ?, expires_at = ? WHERE tree_id = ? AND id = ?').bind(tokenHash, expiresAt, treeId, id).run();
+}
+
+export function deleteInvite(db, treeId, id) {
+  return db.prepare('DELETE FROM invite WHERE tree_id = ? AND id = ?').bind(treeId, id).run();
 }
 
 export function invite(db, tokenHash) {
