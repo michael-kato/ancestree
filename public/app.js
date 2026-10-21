@@ -276,7 +276,7 @@ function buildWorkspace() {
   const modeBtn = (mode, label) => h('button', { 'aria-pressed': String(V.mode === mode), onclick: () => setMode(mode) }, label);
   V.el = {};
   V.el.modes = h('div', { class: 'modes', role: 'group', 'aria-label': 'View' },
-    modeBtn('live', 'Tree'), modeBtn('replay', 'Edits'), modeBtn('generations', 'Generations'));
+    modeBtn('live', 'Tree'), modeBtn('replay', 'Edits'), modeBtn('generations', 'Timelapse'));
   V.el.svg = d3.create('svg').attr('aria-label', `Family tree: ${V.tree.name}`);
   V.el.svg.append('defs').html('<clipPath id="avatar" clipPathUnits="objectBoundingBox"><circle cx=".5" cy=".5" r=".5"/></clipPath>');
   V.el.view = V.el.svg.append('g');
@@ -666,7 +666,7 @@ function renderEmpty(count) {
   V.el.empty.hidden = false;
   let msg;
   if (V.mode === 'replay') msg = V.frame === 0 ? 'Before the first edit. Press play to watch the tree grow.' : 'Nobody was in the tree at this step.';
-  else if (V.mode === 'generations') msg = V.years?.size ? 'Nobody with a known birth year yet. Move the slider forward.' : 'Add birth years to see the tree grow by generation.';
+  else if (V.mode === 'generations') msg = V.years?.size ? 'Nobody with a known birth year yet. Move the slider forward.' : 'Add birth years to watch the tree grow in the timelapse.';
   else msg = editor() ? 'Start with yourself, or the oldest relative you know.' : 'Nobody has been added to this tree yet.';
   V.el.empty.replaceChildren(h('div', {}, h('p', {}, msg),
     V.mode === 'live' && editor() && h('button', { class: 'btn', onclick: () => openForm({ type: 'add', relation: 'first' }) }, 'Add the first person')));
@@ -763,7 +763,7 @@ function renderCaption() {
   const c = V.el.caption;
   if (!c) return;
   if (V.mode === 'generations') {
-    if (!V.yearRange) { fill(c, h('span', { class: 'what' }, 'Add birth years to people to see generations.')); return; }
+    if (!V.yearRange) { fill(c, h('span', { class: 'what' }, 'Add birth years to people to play the timelapse.')); return; }
     const shown = [...V.years.values()].filter((y) => y != null && y <= V.year).length;
     const unknown = [...V.years.values()].filter((y) => y == null).length;
     fill(c, h('span', { class: 'big' }, V.year),
