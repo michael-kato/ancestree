@@ -3,6 +3,10 @@ import * as d3 from 'https://cdn.jsdelivr.net/npm/d3@7.9.0/+esm';
 import * as T from './tree.js';
 
 const NODE_W = 188, NODE_H = 58, UNION = 8, PHOTO = 40, COUPLE_GAP = 28;
+// Connection dots on each card: [side, x, y]. Top adds a parent, bottom a child, sides a sibling.
+const PORTS = [['top', NODE_W / 2, 0], ['bottom', NODE_W / 2, NODE_H], ['left', 0, NODE_H / 2], ['right', NODE_W, NODE_H / 2]];
+const PORT_DIR = { top: 'parent', bottom: 'child', left: 'sibling', right: 'sibling' };
+const PORT_HELP = { top: 'Drag to add a parent', bottom: 'Drag to add a child', left: 'Drag to add a sibling', right: 'Drag to add a sibling' };
 const BAR_BASE = 14, BAR_STEP = 9, BAR_GAP = 12, MAX_TRACKS = 4; // sibling bar heights above the child row
 const POLL_MS = 5000;
 const ROLE_WORD = { owner: 'Owner', editor: 'Can edit', viewer: 'Can view' };
@@ -111,7 +115,7 @@ function fullName(d) {
 // Second line of a person card: the legal first name when they went by a nickname, and dates once they've died.
 const cardSubtitle = (d) => [d.nickname && d.given, T.lifespan(d)].filter(Boolean).join(', ');
 
-const nameOf = (e) => T.displayName(e?.data) || 'Unnamed';
+const nameOf = (e) => T.displayName(e?.data) || 'Unknown';
 const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 
 // ---------- routing ----------
@@ -242,6 +246,7 @@ let V = null; // the open tree
 
 function stopTree() {
   if (!V) return;
+  quick = null;
   clearInterval(V.pollTimer);
   V.playing = false;
   V = null;
@@ -280,7 +285,7 @@ function buildWorkspace() {
   V.el.people = V.el.view.append('g');
   V.zoom = d3.zoom().scaleExtent([0.15, 2.5]).on('zoom', (ev) => V.el.view.attr('transform', ev.transform));
   V.el.svg.call(V.zoom).on('dblclick.zoom', null);
-  V.el.svg.on('click', (ev) => { if (ev.target === V.el.svg.node()) select(null); });
+  V.el.svg.on('click', (ev) => { if (ev.target === V.el.svg.node()) { closeQuickAdd(); select(null); } });
   V.el.empty = h('div', { class: 'empty' });
   V.el.player = h('div', { class: 'player', hidden: true });
   V.el.stage = h('main', { class: 'stage ground' }, V.el.svg.node(), V.el.empty, V.el.player);
@@ -391,6 +396,8 @@ async function layoutTree(g, state) {
 
 async function draw({ highlight = new Set(), duration = 450, fit = false } = {}) {
   const token = ++V.drawToken;
+  // Dots for growing the tree only make sense when editing the live tree.
+  V.el.stage.classList.toggle('can-grow', editor() && V.mode === 'live');
   const { state, visible } = shownState();
   const g = T.familyGraph(state, visible);
   const { layout, pos, blocks } = await layoutTree(g, state);
@@ -456,7 +463,8 @@ async function draw({ highlight = new Set(), duration = 450, fit = false } = {})
   const at = (d) => `translate(${pos.get(d.id).x},${pos.get(d.id).y})`;
   V.el.people.selectAll('g.person').data(g.people, (d) => d.id).join(
     (enter) => enter.append('g').attr('class', 'person').attr('tabindex', 0).attr('role', 'button')
-      .attr('transform', at).attr('opacity', 0)
+      // Someone just created from a dot grows out of where it was dropped.
+      .attr('transform', (d) => (V.spawn?.id === d.id ? `translate(${V.spawn.x},${V.spawn.y})` : at(d))).attr('opacity', 0)
       .on('click', (ev, d) => { ev.stopPropagation(); select(d.id); })
       .on('keydown', (ev, d) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); select(d.id); } })
       .call((s) => {
@@ -467,13 +475,20 @@ async function draw({ highlight = new Set(), duration = 450, fit = false } = {})
         const b = s.append('g').attr('class', 'badge').attr('aria-hidden', 'true').attr('transform', `translate(${NODE_W - 4},4)`);
         b.append('circle').attr('r', 11);
         b.append('text').attr('text-anchor', 'middle').attr('dy', 4);
+        for (const [side, x, y] of PORTS) {
+          const port = s.append('g').attr('class', `port ${side}`).attr('transform', `translate(${x},${y})`)
+            .on('click', (ev) => ev.stopPropagation()).call(portDrag(side));
+          port.append('circle').attr('class', 'hit').attr('r', 16);
+          port.append('circle').attr('class', 'dot').attr('r', 6);
+          port.append('title').text(PORT_HELP[side]);
+        }
       })
-      .call((s) => s.transition(t).attr('opacity', 1)),
+      .call((s) => s.transition(t).attr('opacity', 1).attr('transform', at)),
     (update) => update.call((s) => s.transition(t).attr('transform', at).attr('opacity', 1)),
     (exit) => exit.call((s) => s.transition(t).attr('opacity', 0).remove()),
   ).each(function (d) {
     const g = d3.select(this), photo = d.data.photo, x = photo ? 58 : 14;
-    g.classed('selected', d.id === V.selected);
+    g.classed('selected', d.id === V.selected).classed('unknown', !T.displayName(d.data));
     setBadge(g, d);
     g.select('image').attr('href', photo ? `/api/trees/${V.id}/media/${photo}` : null).attr('display', photo ? null : 'none');
     const years = cardSubtitle(d.data);
@@ -486,6 +501,7 @@ async function draw({ highlight = new Set(), duration = 450, fit = false } = {})
     }
   });
 
+  V.spawn = null;
   renderEmpty(g.people.length);
   if (fit || V.mode !== 'live' || !V.pos?.size) fitView(layout, duration);
   V.pos = pos;
@@ -544,6 +560,95 @@ function countNote(n) {
   V.el.people.selectAll('g.person').filter((d) => d.id === n.target_id).each(function (d) { setBadge(d3.select(this), d); });
 }
 
+// ---------- growing the tree from a card's dots ----------
+
+// Drag from a dot: a line follows the pointer. Drop on a card to link that person, or anywhere
+// else (or just click the dot) to create someone new there.
+function portDrag(side) {
+  let line, origin, from, target;
+  const curve = (x, y) => `M${origin[0]},${origin[1]}C${origin[0]},${(origin[1] + y) / 2} ${x},${(origin[1] + y) / 2} ${x},${y}`;
+  const sideCurve = (x, y) => `M${origin[0]},${origin[1]}C${(origin[0] + x) / 2},${origin[1]} ${(origin[0] + x) / 2},${y} ${x},${y}`;
+  const path = (x, y) => (side === 'left' || side === 'right' ? sideCurve(x, y) : curve(x, y));
+  return d3.drag()
+    .container(() => V.el.view.node())
+    .on('start', function (ev, d) {
+      closeQuickAdd();
+      from = d.id;
+      const p = V.pos.get(d.id), [, px, py] = PORTS.find(([s]) => s === side);
+      origin = [p.x + px, p.y + py];
+      line = V.el.view.append('path').attr('class', 'drag-line').attr('d', path(...origin));
+      target = null;
+    })
+    .on('drag', (ev) => {
+      line.attr('d', path(ev.x, ev.y));
+      const el = document.elementFromPoint(ev.sourceEvent.clientX, ev.sourceEvent.clientY)?.closest('g.person');
+      const over = el && d3.select(el).datum().id !== from ? d3.select(el).datum().id : null;
+      if (over !== target) {
+        V.el.people.selectAll('g.person').classed('drop-target', (p) => p.id === over);
+        target = over;
+      }
+    })
+    .on('end', (ev) => {
+      V.el.people.selectAll('g.person').classed('drop-target', false);
+      const moved = Math.hypot(ev.x - origin[0], ev.y - origin[1]) > 8;
+      if (target) { line.remove(); return linkPeople(from, PORT_DIR[side], target); }
+      // A click (or a short drag) places the new card a step away in that direction.
+      const step = { top: [0, -120], bottom: [0, 120], left: [-NODE_W - 60, 0], right: [NODE_W + 60, 0] }[side];
+      const at = moved ? [ev.x, ev.y] : [origin[0] + step[0], origin[1] + step[1]];
+      line.attr('d', path(...at));
+      openQuickAdd(from, PORT_DIR[side], at, line);
+    });
+}
+
+const RELATION_WORD = { parent: 'a parent', child: 'a child', sibling: 'a sibling' };
+
+async function linkPeople(from, dir, to) {
+  const a = nameOf(V.state.entities.get(from)), b = nameOf(V.state.entities.get(to));
+  let ops;
+  try { ops = T.relateOps(V.state, from, dir, to, () => crypto.randomUUID()); } catch (e) { return toast(e.message, 'error'); }
+  if (await commit(`Linked ${b} as ${RELATION_WORD[dir]} of ${a}`, ops)) toast(`${b} is now ${RELATION_WORD[dir]} of ${a}`);
+}
+
+let quick = null; // the open quick-add card: { el, line }
+
+function closeQuickAdd() {
+  if (!quick) return;
+  quick.el.remove();
+  quick.line.remove();
+  quick = null;
+}
+
+// A small card at the drop point asking for a name; Enter adds the person, Escape cancels.
+function openQuickAdd(from, dir, [x, y], line) {
+  const subject = V.state.entities.get(from).data;
+  const tr = d3.zoomTransform(V.el.svg.node());
+  const [sx, sy] = tr.apply([x, y]);
+  const first = h('input', { name: 'given', placeholder: 'First name', autocomplete: 'off', 'aria-label': 'First name' });
+  const last = h('input', { name: 'surname', placeholder: 'Last name', autocomplete: 'off', 'aria-label': 'Last name',
+    value: dir === 'parent' ? '' : subject.surname || '' });
+  const form = h('form', {
+    class: 'quick-add', style: `left:${sx}px;top:${sy}px`,
+    onsubmit: async (ev) => {
+      ev.preventDefault();
+      const data = { given: first.value, surname: last.value };
+      if (!T.displayName(data)) return first.focus();
+      const id = crypto.randomUUID();
+      let ops;
+      try { ops = [{ id, kind: 'person', base_rev: 0, data }, ...T.relateOps(V.state, from, dir, id, () => crypto.randomUUID())]; } catch (e) { return toast(e.message, 'error'); }
+      V.spawn = { id, x: x - NODE_W / 2, y: y - NODE_H / 2 };
+      closeQuickAdd();
+      if (await commit(`Added ${T.displayName(data)} as ${RELATION_WORD[dir]} of ${T.displayName(subject)}`, ops)) select(id);
+    },
+    onkeydown: (ev) => { if (ev.key === 'Escape') closeQuickAdd(); },
+  },
+  h('p', { class: 'quick-title' }, `New ${dir} of ${T.displayName(subject) || 'this person'}`),
+  h('div', { class: 'quick-names' }, first, last),
+  h('div', { class: 'row' }, h('button', { class: 'btn small' }, 'Add'), h('button', { class: 'btn quiet small', type: 'button', onclick: closeQuickAdd }, 'Cancel')));
+  V.el.stage.append(form);
+  quick = { el: form, line };
+  first.focus();
+}
+
 function fitView(layout, duration) {
   const { width, height } = V.el.svg.node().getBoundingClientRect();
   if (!width || !layout.width) return;
@@ -592,6 +697,7 @@ async function loadLog() {
 }
 
 async function setMode(mode) {
+  closeQuickAdd();
   V.playing = false;
   V.mode = mode;
   V.el.modes.querySelectorAll('button').forEach((b, i) => b.setAttribute('aria-pressed', String(['live', 'replay', 'generations'][i] === mode)));
@@ -818,14 +924,17 @@ function personView() {
   return [
     h('div', { class: 'person-head' },
       d.photo && h('img', { class: 'portrait', src: `/api/trees/${V.id}/media/${d.photo}`, alt: `Photo of ${nameOf(p)}` }),
-      h('h2', {}, fullName(d) || 'Unnamed'),
+      h('h2', {}, fullName(d) || 'Unknown'),
+      !T.displayName(d) && editor() && h('p', { class: 'hint' }, 'Added to connect siblings. Edit details to name this person.'),
       h('div', { class: 'facts' }, fact('Born', d.birth, d.birth_place), fact('Died', d.death)),
       d.notes && h('p', { class: 'notes' }, d.notes)),
     editor() && h('div', { class: 'actions' },
       h('button', { class: 'btn small', onclick: () => openForm({ type: 'edit' }) }, 'Edit details'),
       h('button', { class: 'btn quiet small', onclick: () => openForm({ type: 'add', relation: 'parent' }) }, 'Add parent'),
       h('button', { class: 'btn quiet small', onclick: () => openForm({ type: 'add', relation: 'partner' }) }, 'Add partner'),
-      h('button', { class: 'btn quiet small', onclick: () => openForm({ type: 'add', relation: 'child' }) }, 'Add child')),
+      h('button', { class: 'btn quiet small', onclick: () => openForm({ type: 'add', relation: 'child' }) }, 'Add child'),
+      h('button', { class: 'btn quiet small', onclick: () => openForm({ type: 'add', relation: 'sibling' }) }, 'Add sibling')),
+    editor() && h('p', { class: 'hint' }, 'Tip: drag from the dots on a card to add relatives. Drop on another card to link two people.'),
     !editor() && h('p', { class: 'hint' }, 'You can view this tree and comment. Ask an owner if you’d like to edit it too.'),
     kin.length > 0 && h('section', { class: 'section' }, h('h3', {}, 'Family'), h('ul', { class: 'kin' }, kin)),
     threadSection(p.id, `Comments about ${T.displayName(d) || 'this person'}`, 'Share a memory or ask a question'),
@@ -1132,8 +1241,8 @@ function placeField(name, label, value) {
 function formView() {
   const f = V.form;
   const subject = V.selected && V.state.entities.get(V.selected);
-  // A new child usually shares a surname with the parent they're added from.
-  const base = f.type === 'edit' ? subject.data : f.relation === 'child' ? { surname: subject.data.surname } : {};
+  // A new child or sibling usually shares the surname of the person they're added from.
+  const base = f.type === 'edit' ? subject.data : ['child', 'sibling'].includes(f.relation) ? { surname: subject.data.surname } : {};
   const input = (name, label, attrs = {}) => h('label', { class: 'field' }, label, h('input', { name, value: base[name] || '', ...attrs }));
   const photo = h('input', { type: 'file', name: 'photo', accept: 'image/jpeg,image/png,image/webp,image/gif' });
   const { parents, partners, children } = T.relatives(V.state);
@@ -1226,6 +1335,10 @@ async function savePerson(form, subject) {
       const existing = (T.relatives(V.state).parents.get(subject.id) || [])[0];
       if (el.couple?.checked && existing) ops.push(link('partner', { a: existing.id, b: id, type: 'married' }));
       message = `Added ${name} as a parent of ${nameOf(subject)}`;
+    }
+    if (f.relation === 'sibling') {
+      try { ops.push(...T.relateOps(V.state, subject.id, 'sibling', id, () => crypto.randomUUID())); } catch (e) { button.disabled = false; return toast(e.message, 'error'); }
+      message = `Added ${name} as a sibling of ${nameOf(subject)}`;
     }
     if (f.relation === 'partner') {
       ops.push(link('partner', { a: subject.id, b: id, type: el.ptype.value }));
