@@ -84,6 +84,33 @@ function formatDate(s) {
   const date = new Date(Date.UTC(y, m - 1, d || 1));
   return d ? longDate.format(date) : monthYear.format(date);
 }
+// Dates are typed US-style (mm/dd/yyyy, mm/yyyy or yyyy) and stored as ISO partial dates.
+// Returns '' for blank, null when it can't be read.
+function parseDate(text) {
+  const s = text.trim();
+  if (!s) return '';
+  const iso = (y, m, d) => {
+    if (m && (m < 1 || m > 12)) return null;
+    if (d && new Date(Date.UTC(y, m - 1, d)).getUTCDate() !== Number(d)) return null;
+    return [y, m && String(m).padStart(2, '0'), d && String(d).padStart(2, '0')].filter(Boolean).join('-');
+  };
+  let m;
+  if ((m = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/))) return iso(m[3], +m[1], +m[2]);
+  if ((m = s.match(/^(\d{1,2})[/.-](\d{4})$/))) return iso(m[2], +m[1]);
+  if ((m = s.match(/^(\d{4})(?:-(\d{1,2})(?:-(\d{1,2}))?)?$/))) return iso(m[1], m[2] && +m[2], m[3] && +m[3]);
+  return null;
+}
+function usDate(iso) {
+  const [y, m, d] = (iso || '').split('-');
+  return d ? `${m}/${d}/${y}` : m ? `${m}/${y}` : y || '';
+}
+// Robert “Bob” Kato
+function fullName(d) {
+  return d.nickname && d.given ? `${d.given} “${d.nickname}” ${d.surname || ''}`.trim() : T.displayName(d);
+}
+// Second line of a person card: the legal first name when they went by a nickname, and dates once they've died.
+const cardSubtitle = (d) => [d.nickname && d.given, T.lifespan(d)].filter(Boolean).join(', ');
+
 const nameOf = (e) => T.displayName(e?.data) || 'Unnamed';
 const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 
@@ -449,7 +476,7 @@ async function draw({ highlight = new Set(), duration = 450, fit = false } = {})
     g.classed('selected', d.id === V.selected);
     setBadge(g, d);
     g.select('image').attr('href', photo ? `/api/trees/${V.id}/media/${photo}` : null).attr('display', photo ? null : 'none');
-    const years = T.lifespan(d.data);
+    const years = cardSubtitle(d.data);
     g.select('.name').attr('x', x).attr('y', years ? 25 : NODE_H / 2 + 5).text(clip(nameOf(d), photo ? 17 : 21));
     g.select('.years').attr('x', x).text(years);
     g.classed('lit', false);
@@ -791,8 +818,8 @@ function personView() {
   return [
     h('div', { class: 'person-head' },
       d.photo && h('img', { class: 'portrait', src: `/api/trees/${V.id}/media/${d.photo}`, alt: `Photo of ${nameOf(p)}` }),
-      h('h2', {}, nameOf(p)),
-      h('div', { class: 'facts' }, fact('Born', d.birth, d.birth_place), fact('Died', d.death, d.death_place)),
+      h('h2', {}, fullName(d) || 'Unnamed'),
+      h('div', { class: 'facts' }, fact('Born', d.birth, d.birth_place), fact('Died', d.death)),
       d.notes && h('p', { class: 'notes' }, d.notes)),
     editor() && h('div', { class: 'actions' },
       h('button', { class: 'btn small', onclick: () => openForm({ type: 'edit' }) }, 'Edit details'),
@@ -1035,13 +1062,79 @@ async function resizeImage(file) {
   return new Promise((r) => c.toBlob(r, 'image/jpeg', 0.86));
 }
 
+// Text date field (mm/dd/yyyy, mm/yyyy or yyyy) with a calendar button for exact dates.
+function dateField(name, label, value) {
+  const text = h('input', { name, value: usDate(value), placeholder: 'mm/dd/yyyy', inputmode: 'numeric', autocomplete: 'off' });
+  const picker = h('input', { type: 'date', class: 'picker', tabindex: -1, 'aria-hidden': 'true',
+    onchange: () => { text.value = usDate(picker.value); text.dispatchEvent(new Event('input')); } });
+  const hint = h('span', { class: 'hint' }, 'Just the year is fine if that’s all you know.');
+  text.addEventListener('blur', () => {
+    const ok = parseDate(text.value) !== null;
+    text.setAttribute('aria-invalid', String(!ok));
+    hint.textContent = ok ? 'Just the year is fine if that’s all you know.' : 'Use mm/dd/yyyy, mm/yyyy or just the year.';
+    hint.classList.toggle('error', !ok);
+  });
+  const open = () => {
+    const iso = parseDate(text.value);
+    picker.value = iso && iso.length === 10 ? iso : '';
+    picker.showPicker?.();
+  };
+  return h('label', { class: 'field' }, label,
+    h('div', { class: 'with-button' }, text, picker,
+      h('button', { type: 'button', class: 'icon-btn', 'aria-label': `Pick ${label.toLowerCase()} date from a calendar`, onclick: open }, svgIcon(CALENDAR))),
+    hint);
+}
+const CALENDAR = 'M7 2v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2V2h-2v2H9V2H7zm-2 8h14v10H5V10z';
+
+// Free-text place with Town, State, Country suggestions as you type.
+function placeField(name, label, value) {
+  const listId = `${name}-options`;
+  const input = h('input', { name, value: value || '', autocomplete: 'off', placeholder: 'Town, state, country',
+    role: 'combobox', 'aria-autocomplete': 'list', 'aria-expanded': 'false', 'aria-controls': listId });
+  const list = h('ul', { class: 'suggest', id: listId, role: 'listbox', hidden: true });
+  let items = [], active = -1, timer, seq = 0;
+  const show = (places) => {
+    items = places;
+    active = -1;
+    list.replaceChildren(...places.map((p, i) => h('li', { role: 'option', id: `${listId}-${i}`,
+      onmousedown: (ev) => { ev.preventDefault(); choose(i); } }, p)));
+    list.hidden = !places.length;
+    input.setAttribute('aria-expanded', String(!!places.length));
+  };
+  const highlight = (i) => {
+    active = i;
+    [...list.children].forEach((li, j) => li.setAttribute('aria-selected', String(j === i)));
+    if (i >= 0) input.setAttribute('aria-activedescendant', `${listId}-${i}`); else input.removeAttribute('aria-activedescendant');
+  };
+  const choose = (i) => { input.value = items[i]; show([]); };
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    const q = input.value.trim(), mine = ++seq;
+    if (q.length < 2) return show([]);
+    timer = setTimeout(async () => {
+      try {
+        const { places } = await api(`/places?q=${encodeURIComponent(q)}`);
+        if (mine === seq && document.activeElement === input) show(places);
+      } catch { show([]); } // suggestions are optional; typing still works
+    }, 250);
+  });
+  input.addEventListener('keydown', (ev) => {
+    if (list.hidden) return;
+    if (ev.key === 'ArrowDown') { ev.preventDefault(); highlight((active + 1) % items.length); }
+    else if (ev.key === 'ArrowUp') { ev.preventDefault(); highlight((active - 1 + items.length) % items.length); }
+    else if (ev.key === 'Enter' && active >= 0) { ev.preventDefault(); choose(active); }
+    else if (ev.key === 'Escape') { ev.preventDefault(); show([]); }
+  });
+  input.addEventListener('blur', () => show([]));
+  return h('label', { class: 'field place' }, label, input, list);
+}
+
 function formView() {
   const f = V.form;
   const subject = V.selected && V.state.entities.get(V.selected);
   // A new child usually shares a surname with the parent they're added from.
   const base = f.type === 'edit' ? subject.data : f.relation === 'child' ? { surname: subject.data.surname } : {};
   const input = (name, label, attrs = {}) => h('label', { class: 'field' }, label, h('input', { name, value: base[name] || '', ...attrs }));
-  const dateHint = { placeholder: '1950 or 1950-04-21', pattern: '\\d{4}(-\\d{2}(-\\d{2})?)?', inputmode: 'numeric' };
   const photo = h('input', { type: 'file', name: 'photo', accept: 'image/jpeg,image/png,image/webp,image/gif' });
   const { parents, partners, children } = T.relatives(V.state);
 
@@ -1074,25 +1167,31 @@ function formView() {
   const form = h('form', { class: 'stack', onsubmit: (ev) => { ev.preventDefault(); savePerson(form, subject); } },
     h('h2', {}, title),
     relation,
-    h('div', { class: 'grid2' }, input('given', 'Given names', { autocomplete: 'off' }), input('surname', 'Surname', { autocomplete: 'off' })),
-    h('div', { class: 'grid2' }, input('birth', 'Born', dateHint), input('birth_place', 'Birthplace')),
+    h('div', { class: 'grid2' }, input('given', 'First name', { autocomplete: 'off' }), input('surname', 'Last name', { autocomplete: 'off' })),
+    input('nickname', 'Nickname', { autocomplete: 'off', placeholder: 'What the family called them, if different' }),
+    dateField('birth', 'Born', base.birth),
+    placeField('birth_place', 'Birthplace', base.birth_place),
     h('details', { class: 'more', open: f.type === 'edit' }, h('summary', {}, 'More details'),
       h('div', { class: 'stack' },
         h('label', { class: 'field' }, 'Sex', h('select', { name: 'sex' },
           [['', 'Not recorded'], ['female', 'Female'], ['male', 'Male'], ['other', 'Other']].map(([v, l]) => h('option', { value: v, selected: (base.sex || '') === v }, l)))),
-        h('div', { class: 'grid2' }, input('death', 'Died', dateHint), input('death_place', 'Place of death')),
+        dateField('death', 'Died', base.death),
         h('label', { class: 'field' }, 'Notes', h('textarea', { name: 'notes', maxlength: 4000, value: base.notes || '' })),
         h('label', { class: 'field' }, base.photo ? 'Replace photo' : 'Photo', photo))),
-    h('div', { class: 'row' }, h('button', { class: 'btn' }, submitLabel), h('button', { class: 'btn quiet', type: 'button', onclick: () => { V.form = null; renderPanel(); } }, 'Cancel')));
+    h('div', { class: 'row' }, h('button', { class: 'btn', 'data-submit': true }, submitLabel), h('button', { class: 'btn quiet', type: 'button', onclick: () => { V.form = null; renderPanel(); } }, 'Cancel')));
   queueMicrotask(() => form.elements.given.focus());
   return form;
 }
 
 async function savePerson(form, subject) {
-  const f = V.form, el = form.elements, button = form.querySelector('button');
-  const fields = ['given', 'surname', 'sex', 'birth', 'birth_place', 'death', 'death_place', 'notes'];
+  const f = V.form, el = form.elements, button = form.querySelector('[data-submit]');
+  const fields = ['given', 'nickname', 'surname', 'sex', 'birth_place', 'notes'];
   const data = { ...(f.type === 'edit' ? subject.data : {}), ...Object.fromEntries(fields.map((k) => [k, el[k].value])) };
-  if (!T.displayName(data)) return toast('Enter at least a given name or surname', 'error');
+  for (const k of ['birth', 'death']) {
+    data[k] = parseDate(el[k].value);
+    if (data[k] === null) { el[k].focus(); return toast('Enter dates as mm/dd/yyyy, mm/yyyy or just the year', 'error'); }
+  }
+  if (!T.displayName(data)) return toast('Enter at least a first name, nickname or last name', 'error');
   button.disabled = true;
   try {
     const file = el.photo.files[0];

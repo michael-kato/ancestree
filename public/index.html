@@ -80,6 +80,17 @@ label.field { display: grid; gap: var(--s1); font-size: 14px; font-weight: 600; 
   background: var(--paper); color: var(--ink); font-weight: 400; font-size: 16px;
 }
 .field textarea, .composer textarea { resize: vertical; min-height: 84px; }
+.field .hint { font-weight: 400; }
+.field [aria-invalid="true"] { border-color: var(--danger); }
+.with-button { position: relative; display: flex; }
+.with-button input:not(.picker) { padding-right: 44px; }
+.with-button .picker { position: absolute; right: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.icon-btn { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 6px; background: none; color: var(--ink-soft); cursor: pointer; }
+.icon-btn:hover { background: var(--paper-2); color: var(--ink); }
+.place { position: relative; }
+.suggest { position: absolute; z-index: 5; left: 0; right: 0; top: 100%; margin: 4px 0 0; padding: 4px; list-style: none; background: var(--paper); border: 1.5px solid var(--rule); border-radius: 8px; box-shadow: 0 12px 28px -12px rgba(6, 18, 44, .5); font-weight: 400; font-size: 15px; color: var(--ink); }
+.suggest li { padding: 8px 10px; border-radius: 6px; cursor: pointer; }
+.suggest li:hover, .suggest li[aria-selected="true"] { background: var(--paper-2); }
 .field input:focus, .field select:focus, .field textarea:focus, .composer textarea:focus { border-color: var(--ink); outline: none; }
 .row { display: flex; gap: var(--s3); flex-wrap: wrap; align-items: center; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); }
