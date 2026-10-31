@@ -1,14 +1,13 @@
-// HTTP shell: routing, sessions, roles. Static files are served from public/ by Workers Assets.
+// Static files are served from public/ by Workers Assets.
 import * as S from './store.js';
-import { validate, fromRows, Invalid, Conflict } from './public/tree.js';
+import { validate, fromRows, Invalid, Conflict, Forbidden } from './public/tree.js';
 
 const MINUTE = 60_000, DAY = 86_400_000;
-const SESSION_MS = 30 * DAY, LOGIN_MS = 15 * MINUTE, INVITE_MS = 14 * DAY;
+const SESSION_MS = 30 * DAY, LOGIN_MS = 15 * MINUTE;
 const LOGINS_PER_WINDOW = 3;
 const PAGE = 500;
 const MAX_MEDIA_BYTES = 10 * 1024 * 1024;
 const MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf'];
-const RANK = { viewer: 1, editor: 2, owner: 3 };
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 
@@ -49,11 +48,6 @@ function id(v, field) {
   if (typeof v !== 'string' || !ID.test(v)) throw new HttpError(400, `${field} must be an id`);
   return v;
 }
-function role(v, allowed) {
-  if (!allowed.includes(v)) throw new HttpError(400, `role must be one of ${allowed.join(', ')}`);
-  return v;
-}
-
 async function verifyTurnstile(env, token, ip) {
   const form = new FormData();
   form.append('secret', env.TURNSTILE_SECRET);
@@ -103,7 +97,7 @@ async function logout(c) {
 const config = (c) => json({ turnstile_sitekey: c.env.TURNSTILE_SITEKEY });
 
 async function me(c) {
-  return json({ user: c.user, trees: await S.treesFor(c.env.DB, c.user.id) });
+  return json({ user: c.user });
 }
 
 async function renameMe(c) {
@@ -112,25 +106,14 @@ async function renameMe(c) {
   return json({ user: { ...c.user, name } });
 }
 
-async function createTree(c) {
-  const name = str(c.body.name, 'Tree name', 1, 80);
-  const treeId = crypto.randomUUID();
-  await S.createTree(c.env.DB, treeId, name, c.user.id, c.now);
-  return json({ tree: { id: treeId, name, seq: 0, role: 'owner' } }, 201);
-}
-
-async function deleteTree(c) {
-  await S.deleteTree(c.env.DB, c.env.MEDIA, c.tree.id);
-  return json({ ok: true });
-}
-
 async function getTree(c) {
-  const { db, tree } = { db: c.env.DB, tree: c.tree };
-  // tree.seq was read before entities, so polling from it never misses a change.
-  const [people, entities, counts] = await Promise.all([S.members(db, tree.id), S.entities(db, tree.id), S.commentCounts(db, tree.id)]);
-  const members = visibleMembers(people, tree.role);
-  // now lets the client tell comments counted here from ones created after this response.
-  return json({ tree: { id: tree.id, name: tree.name, seq: tree.seq }, role: tree.role, members, entities, comment_counts: counts, now: c.now });
+  // Read the sequence before entities so polling cannot miss an edit.
+  const tree = c.tree;
+  const [entities, counts] = await Promise.all([
+    S.entities(c.env.DB, tree.id), S.commentCounts(c.env.DB, tree.id),
+  ]);
+  // The client treats comments created by now as already counted.
+  return json({ tree, entities, comment_counts: counts, now: c.now });
 }
 
 async function commit(c) {
@@ -139,7 +122,7 @@ async function commit(c) {
   for (let attempt = 0; attempt < 5; attempt++) {
     if (attempt) await new Promise((r) => setTimeout(r, Math.random() * 50 * attempt));
     const seq = await S.treeSeq(env.DB, tree.id);
-    const revs = validate(fromRows(seq, await S.entities(env.DB, tree.id)), c.body.ops);
+    const revs = validate(fromRows(seq, await S.entities(env.DB, tree.id)), c.body.ops, c.user.id);
     const newSeq = await S.writeChangeset(env.DB, tree.id, seq, c.user.id, message, revs, c.now);
     if (newSeq) {
       return json({ changeset: { seq: newSeq, user_id: c.user.id, user_name: c.user.name, message, created_at: c.now, ops: revs } }, 201);
@@ -189,22 +172,22 @@ async function addComment(c) {
   return json({ comment: { ...note, user_name: c.user.name } }, 201);
 }
 
-async function ownComment(c, allowOwner) {
+async function ownComment(c) {
   const note = await S.comment(c.env.DB, c.tree.id, c.params.id);
   if (!note || note.deleted_at) throw new HttpError(404, 'That comment no longer exists');
-  if (note.user_id !== c.user.id && !(allowOwner && c.tree.role === 'owner')) {
+  if (note.user_id !== c.user.id) {
     throw new HttpError(403, 'Only the person who wrote this comment can change it');
   }
 }
 
 async function editComment(c) {
-  await ownComment(c, false);
+  await ownComment(c);
   await S.editComment(c.env.DB, c.tree.id, c.params.id, str(c.body.body, 'Comment', 1, 4000), c.now);
   return json({ ok: true });
 }
 
 async function deleteComment(c) {
-  await ownComment(c, true);
+  await ownComment(c);
   await S.deleteComment(c.env.DB, c.tree.id, c.params.id, c.now);
   return json({ ok: true });
 }
@@ -225,7 +208,7 @@ async function uploadMedia(c) {
 }
 
 async function getMedia(c) {
-  const obj = await S.getMedia(c.env.MEDIA, c.tree.id, id(c.params.id, 'id'));
+  const obj = await S.getMedia(c.env.DB, c.env.MEDIA, c.tree.id, id(c.params.id, 'id'));
   if (!obj) throw new HttpError(404, 'File not found');
   return new Response(obj.body, {
     headers: {
@@ -259,83 +242,6 @@ async function places(c) {
   return json({ places: [...new Set(labels)].slice(0, 6) }, 200, { 'cache-control': 'private, max-age=86400' });
 }
 
-function sendInvite(c, addr, token) {
-  const link = `${c.url.origin}/invite?token=${token}`;
-  const who = c.user.name || c.user.email;
-  return S.sendMail(c.env, addr, `${who} invited you to ${c.tree.name} on Ancestree`,
-    `${who} invited you to the family tree "${c.tree.name}" on Ancestree.\n\nOpen this link to join. No password needed:\n${link}\n\nThe link works once and expires in 14 days.`);
-}
-
-async function invite(c) {
-  const addr = email(c.body.email);
-  const r = role(c.body.role || 'editor', ['editor', 'viewer']);
-  if ((await S.members(c.env.DB, c.tree.id)).some((m) => m.email === addr)) throw new HttpError(400, `${addr} is already in this tree`);
-  const token = newToken();
-  const inv = { id: crypto.randomUUID(), email: addr, role: r, expires_at: c.now + INVITE_MS };
-  await S.addInvite(c.env.DB, inv.id, await hash(token), c.tree.id, addr, r, c.user.id, inv.expires_at);
-  await sendInvite(c, addr, token);
-  return json({ invite: inv }, 201);
-}
-
-// A fresh token, so a lost or expired email can be replaced; the old link stops working.
-async function resendInvite(c) {
-  const inv = await S.inviteById(c.env.DB, c.tree.id, c.params.id);
-  if (!inv) throw new HttpError(404, 'That invite was already used or cancelled');
-  const token = newToken();
-  const expires = c.now + INVITE_MS;
-  await S.renewInvite(c.env.DB, c.tree.id, inv.id, await hash(token), expires);
-  await sendInvite(c, inv.email, token);
-  return json({ invite: { ...inv, expires_at: expires } });
-}
-
-async function cancelInvite(c) {
-  await S.deleteInvite(c.env.DB, c.tree.id, c.params.id);
-  return json({ ok: true });
-}
-
-// Only owners see members' email addresses.
-const visibleMembers = (people, role) => people.map((m) => (role === 'owner' ? m : { id: m.id, name: m.name, role: m.role }));
-
-async function listMembers(c) {
-  return json({
-    members: visibleMembers(await S.members(c.env.DB, c.tree.id), c.tree.role),
-    invites: c.tree.role === 'owner' ? await S.pendingInvites(c.env.DB, c.tree.id, c.now) : [],
-  });
-}
-
-// The invite link was emailed to inv.email, so it proves that address like a sign-in link does.
-async function acceptInvite(c) {
-  const tokenHash = await hash(String(c.body.token || ''));
-  const inv = await S.invite(c.env.DB, tokenHash);
-  if (!inv || inv.expires_at < c.now) throw new HttpError(400, 'This invite has expired or was already used. Ask for a new one.');
-  const user = await S.userByEmail(c.env.DB, inv.email, crypto.randomUUID(), c.now);
-  await S.acceptInvite(c.env.DB, tokenHash, inv, user.id, c.now);
-  return json({ tree: { id: inv.tree_id, name: inv.tree_name } }, 200, await startSession(c, user));
-}
-
-async function keepAnOwner(c, userId) {
-  const target = (await S.members(c.env.DB, c.tree.id)).find((m) => m.id === userId);
-  if (!target) throw new HttpError(404, 'That person is not a member of this tree');
-  if (target.role === 'owner' && (await S.ownerCount(c.env.DB, c.tree.id)) === 1) {
-    throw new HttpError(400, 'A tree needs at least one owner. Make someone else an owner first.');
-  }
-}
-
-async function changeRole(c) {
-  const r = role(c.body.role, ['owner', 'editor', 'viewer']);
-  if (r !== 'owner') await keepAnOwner(c, c.params.user);
-  await S.setRole(c.env.DB, c.tree.id, c.params.user, r);
-  return json({ ok: true });
-}
-
-async function removeMember(c) {
-  if (c.params.user !== c.user.id && c.tree.role !== 'owner') throw new HttpError(403, 'Only owners can remove other members');
-  await keepAnOwner(c, c.params.user);
-  await S.removeMember(c.env.DB, c.tree.id, c.params.user);
-  return json({ ok: true });
-}
-
-// [method, path, handler, access]: access is 'public', 'user', or the minimum tree role.
 const ROUTES = [
   ['GET', '/api/config', config, 'public'],
   ['POST', '/api/auth/login', login, 'public'],
@@ -343,26 +249,17 @@ const ROUTES = [
   ['POST', '/api/auth/logout', logout, 'public'],
   ['GET', '/api/me', me, 'user'],
   ['PATCH', '/api/me', renameMe, 'user'],
-  ['POST', '/api/trees', createTree, 'user'],
   ['GET', '/api/places', places, 'user'],
-  ['POST', '/api/invites/accept', acceptInvite, 'public'],
-  ['GET', '/api/trees/:tree', getTree, 'viewer'],
-  ['DELETE', '/api/trees/:tree', deleteTree, 'owner'],
-  ['POST', '/api/trees/:tree/changesets', commit, 'editor'],
-  ['GET', '/api/trees/:tree/log', log, 'viewer'],
-  ['GET', '/api/trees/:tree/changes', changes, 'viewer'],
-  ['GET', '/api/trees/:tree/comments', listComments, 'viewer'],
-  ['POST', '/api/trees/:tree/comments', addComment, 'viewer'],
-  ['PATCH', '/api/trees/:tree/comments/:id', editComment, 'viewer'],
-  ['DELETE', '/api/trees/:tree/comments/:id', deleteComment, 'viewer'],
-  ['POST', '/api/trees/:tree/media', uploadMedia, 'editor'],
-  ['GET', '/api/trees/:tree/media/:id', getMedia, 'viewer'],
-  ['GET', '/api/trees/:tree/members', listMembers, 'viewer'],
-  ['POST', '/api/trees/:tree/invites', invite, 'owner'],
-  ['POST', '/api/trees/:tree/invites/:id/resend', resendInvite, 'owner'],
-  ['DELETE', '/api/trees/:tree/invites/:id', cancelInvite, 'owner'],
-  ['PATCH', '/api/trees/:tree/members/:user', changeRole, 'owner'],
-  ['DELETE', '/api/trees/:tree/members/:user', removeMember, 'viewer'],
+  ['GET', '/api/tree', getTree, 'public'],
+  ['POST', '/api/tree/changesets', commit, 'user'],
+  ['GET', '/api/tree/log', log, 'public'],
+  ['GET', '/api/tree/changes', changes, 'public'],
+  ['GET', '/api/tree/comments', listComments, 'public'],
+  ['POST', '/api/tree/comments', addComment, 'user'],
+  ['PATCH', '/api/tree/comments/:id', editComment, 'user'],
+  ['DELETE', '/api/tree/comments/:id', deleteComment, 'user'],
+  ['POST', '/api/tree/media', uploadMedia, 'user'],
+  ['GET', '/api/tree/media/:id', getMedia, 'public'],
 ].map(([method, path, handler, access]) => ({
   method, handler, access,
   pattern: new RegExp('^' + path.replace(/:(\w+)/g, '(?<$1>[^/]+)') + '$'),
@@ -383,16 +280,16 @@ async function handle(req, env) {
     c.body = await req.json().catch(() => {
       throw new HttpError(400, 'Request body is not valid JSON');
     });
+    if (!c.body || typeof c.body !== 'object' || Array.isArray(c.body)) throw new HttpError(400, 'Send a JSON object');
   }
   if (route.access !== 'public') {
     const token = cookie(req, 'sid');
     c.user = token && (await S.sessionUser(env.DB, await hash(token), c.now));
     if (!c.user) throw new HttpError(401, 'Sign in to continue');
   }
-  if (RANK[route.access]) {
-    c.tree = await S.membership(env.DB, c.params.tree, c.user.id);
-    if (!c.tree) throw new HttpError(404, 'Tree not found');
-    if (RANK[c.tree.role] < RANK[route.access]) throw new HttpError(403, `You need ${route.access} access to do that`);
+  if (url.pathname === '/api/tree' || url.pathname.startsWith('/api/tree/')) {
+    c.tree = await S.sharedTree(env.DB);
+    if (!c.tree) throw new HttpError(503, 'The shared tree is not ready');
   }
   return route.handler(c);
 }
@@ -403,6 +300,7 @@ export default {
       return await handle(req, env);
     } catch (e) {
       if (e instanceof HttpError) return json({ error: e.message }, e.status);
+      if (e instanceof Forbidden) return json({ error: e.message }, 403);
       if (e instanceof Invalid) return json({ error: e.message }, 400);
       if (e instanceof Conflict) return json({ error: e.message, conflict: true }, 409);
       console.error(e);

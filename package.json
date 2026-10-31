@@ -4,5 +4,10 @@
   "type": "module",
   "devDependencies": {
     "wrangler": "^4.151.3"
+  },
+  "scripts": {
+    "test": "node --test --test-isolation=none test/*.test.js",
+    "coverage": "node --test --test-isolation=none --experimental-test-coverage --test-coverage-exclude=\"test/**\" test/*.test.js --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info",
+    "benchmark": "node test/relationship-benchmark.js"
   }
 }

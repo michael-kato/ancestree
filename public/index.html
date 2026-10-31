@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ancestree</title>
-<meta name="description" content="A family tree your whole family builds together.">
+<meta name="description" content="One shared human tree. Free to view. Open to registered contributors.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;600;700&display=swap" rel="stylesheet">
@@ -109,11 +109,6 @@ label.field { display: grid; gap: var(--s1); font-size: 14px; font-weight: 600; 
 .wordmark-sub { margin-top: var(--s3); color: var(--print-dim); font-size: 18px; max-width: 30ch; }
 .sheet { background: var(--paper); color: var(--ink); border-radius: 14px; padding: var(--s5); display: grid; gap: var(--s4); box-shadow: 0 18px 40px -18px rgba(6, 18, 44, .7); }
 .sheet h2 { font-size: 20px; }
-.tree-list { list-style: none; margin: 0; padding: 0; display: grid; }
-.tree-list a { display: flex; justify-content: space-between; gap: var(--s3); padding: var(--s3) 0; border-bottom: 1px solid var(--rule); text-decoration: none; font-weight: 600; }
-.tree-list a:hover .tree-name { text-decoration: underline; }
-.tree-list .role { font-weight: 400; color: var(--ink-soft); }
-
 /* Tree workspace */
 .app { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 400px; grid-template-rows: auto minmax(0, 1fr); }
 .bar { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--s4); padding: var(--s2) var(--s4); border-bottom: 1px solid var(--rule); background: var(--paper); min-height: 56px; }
@@ -131,16 +126,20 @@ label.field { display: grid; gap: var(--s1); font-size: 14px; font-weight: 600; 
 .empty > div { pointer-events: auto; display: grid; gap: var(--s4); justify-items: center; max-width: 34ch; font-size: 18px; }
 .empty .btn { background: var(--print); color: var(--prussian); border-color: var(--print); }
 
-.person rect { fill: rgba(238, 243, 250, .06); stroke: var(--print); stroke-width: 1.5; }
-.person .name { fill: var(--print); font-weight: 600; font-size: 15px; }
-.person .years { fill: var(--print-dim); font-size: 13px; }
+.person rect { fill: var(--relation-color, #d4deeb); stroke: var(--relation-color, #d4deeb); stroke-width: 1.5; }
+.person .name { fill: #15294a; font-weight: 600; font-size: 15px; }
+.person .years { fill: #334868; font-size: 13px; }
 .person { cursor: pointer; }
-.person:hover rect { fill: rgba(238, 243, 250, .14); }
+.person:hover rect { stroke: var(--print); stroke-width: 3; }
 .person:focus { outline: none; }
 .person:focus-visible rect { stroke: var(--focus); stroke-width: 3; }
-.person.selected rect { fill: var(--print); }
+.person.selected rect { stroke: var(--sun); stroke-width: 3; }
 .person.selected .name { fill: var(--prussian); }
 .person.selected .years { fill: var(--prussian); opacity: .75; }
+.person .lock { fill: #15294a; font-size: 9px; font-weight: 700; }
+.relation-legend { position: absolute; top: 12px; left: 12px; max-width: min(340px, calc(100% - 24px)); padding: 10px 12px; border-radius: 10px; background: #122f5d; color: #eef3fa; font-size: 12px; display: grid; gap: 5px; pointer-events: none; }
+.relation-scale { display: flex; gap: 2px; color: #15294a; }
+.relation-scale span { text-align: center; min-width: 30px; padding: 2px 5px; }
 .person.lit rect { animation: expose 1.6s ease-out; }
 @keyframes expose {
   0% { fill: var(--sun); stroke: var(--sun); }
@@ -151,13 +150,13 @@ label.field { display: grid; gap: var(--s1); font-size: 14px; font-weight: 600; 
 .union { fill: var(--print); }
 /* Connection dots: shown on hover / selection while editing the live tree. */
 .port { display: none; cursor: crosshair; }
-.can-grow .port { display: inline; opacity: 0; transition: opacity .15s; }
-.can-grow .person:hover .port, .can-grow .person.selected .port, .can-grow .person:focus-visible .port { opacity: 1; }
+.can-grow .editable .port { display: inline; opacity: 0; transition: opacity .15s; }
+.can-grow .person.editable:hover .port, .can-grow .person.editable.selected .port, .can-grow .person.editable:focus-visible .port { opacity: 1; }
 .port .hit { fill: transparent; }
 .port .dot { fill: var(--prussian); stroke: var(--print); stroke-width: 2; }
 .port:hover .dot { fill: var(--sun); stroke: var(--sun); }
 .drag-line { fill: none; stroke: var(--sun); stroke-width: 2; stroke-dasharray: 6 5; pointer-events: none; }
-.person.drop-target rect { stroke: var(--sun); stroke-width: 3; fill: rgba(244, 193, 82, .2); }
+.person.drop-target rect { stroke: var(--sun); stroke-width: 3; }
 .quick-add { position: absolute; transform: translate(-50%, -50%); width: 240px; display: grid; gap: var(--s2); padding: var(--s3); border-radius: 12px; background: var(--paper); color: var(--ink); box-shadow: 0 18px 40px -16px rgba(6, 18, 44, .8); border: 2px solid var(--sun); z-index: 4; }
 .quick-title { font-weight: 600; font-size: 14px; }
 .quick-names { display: grid; gap: var(--s1); }
@@ -212,15 +211,9 @@ label.field { display: grid; gap: var(--s1); font-size: 14px; font-weight: 600; 
 .history { list-style: none; padding: 0; margin: 0; display: grid; }
 .history li { padding: var(--s3) 0; border-bottom: 1px solid var(--rule); display: grid; gap: var(--s1); }
 .history .meta { font-size: 14px; color: var(--ink-soft); }
-.members { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--s3); }
-.members li { display: flex; gap: var(--s3); align-items: center; justify-content: space-between; flex-wrap: wrap; }
-.members select { padding: 6px 8px; border: 1.5px solid var(--rule); border-radius: 8px; background: var(--paper); color: var(--ink); }
-
 .ask { border: 0; border-radius: 14px; padding: var(--s5); width: min(420px, calc(100% - 32px)); background: var(--paper); color: var(--ink); box-shadow: 0 24px 60px -20px rgba(6, 18, 44, .7); }
 .ask::backdrop { background: rgba(10, 28, 60, .55); }
 .ask h2 { font-size: 20px; }
-.danger-zone { border-top: 1px solid var(--rule); padding-top: var(--s4); }
-.danger-zone h3 { color: var(--danger); }
 .toast { position: fixed; left: 50%; bottom: var(--s5); transform: translateX(-50%); max-width: min(560px, calc(100% - 32px)); padding: var(--s3) var(--s4); border-radius: 10px; background: var(--ink); color: var(--paper); box-shadow: 0 10px 30px -10px rgba(6, 18, 44, .6); z-index: 10; }
 .toast.error { background: var(--danger); color: #fff; }
 

@@ -42,110 +42,14 @@ export function dropSession(db, tokenHash) {
   return db.prepare('DELETE FROM session WHERE token_hash = ?').bind(tokenHash).run();
 }
 
-// Trees and membership
-
-export async function treesFor(db, userId) {
-  const { results } = await db.prepare(
-    'SELECT t.id, t.name, t.seq, m.role FROM member m JOIN tree t ON t.id = m.tree_id WHERE m.user_id = ? ORDER BY t.name',
-  ).bind(userId).all();
-  return results;
-}
-
-export async function createTree(db, id, name, userId, now) {
-  await db.batch([
-    db.prepare('INSERT INTO tree (id, name, created_by, created_at) VALUES (?, ?, ?, ?)').bind(id, name, userId, now),
-    db.prepare("INSERT INTO member (tree_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)").bind(id, userId, now),
-  ]);
-}
-
-// Photos first, then every row in one transaction, so a failure part-way can be retried.
-export async function deleteTree(db, bucket, treeId) {
-  const prefix = `trees/${treeId}/`;
-  let cursor;
-  do {
-    const page = await bucket.list({ prefix, cursor });
-    if (page.objects.length) await bucket.delete(page.objects.map((o) => o.key));
-    cursor = page.truncated ? page.cursor : undefined;
-  } while (cursor);
-  const tables = ['revision', 'changeset', 'entity', 'comment', 'media', 'invite', 'member'];
-  await db.batch([
-    ...tables.map((t) => db.prepare(`DELETE FROM ${t} WHERE tree_id = ?`).bind(treeId)),
-    db.prepare('DELETE FROM tree WHERE id = ?').bind(treeId),
-  ]);
-}
-
-export function membership(db, treeId, userId) {
-  return db.prepare('SELECT t.id, t.name, t.seq, m.role FROM member m JOIN tree t ON t.id = m.tree_id WHERE m.tree_id = ? AND m.user_id = ?')
-    .bind(treeId, userId).first();
-}
-
-export async function members(db, treeId) {
-  const { results } = await db.prepare(
-    'SELECT u.id, u.name, u.email, m.role FROM member m JOIN users u ON u.id = m.user_id WHERE m.tree_id = ? ORDER BY u.name, u.email',
-  ).bind(treeId).all();
-  return results;
-}
-
-export async function ownerCount(db, treeId) {
-  const r = await db.prepare("SELECT COUNT(*) AS n FROM member WHERE tree_id = ? AND role = 'owner'").bind(treeId).first();
-  return r.n;
-}
-
-export function setRole(db, treeId, userId, role) {
-  return db.prepare('UPDATE member SET role = ? WHERE tree_id = ? AND user_id = ?').bind(role, treeId, userId).run();
-}
-
-export function removeMember(db, treeId, userId) {
-  return db.prepare('DELETE FROM member WHERE tree_id = ? AND user_id = ?').bind(treeId, userId).run();
-}
-
-// Replaces any earlier invite to the same address, so each person has one pending invite.
-export async function addInvite(db, id, tokenHash, treeId, email, role, invitedBy, expiresAt) {
-  await db.batch([
-    db.prepare('DELETE FROM invite WHERE tree_id = ? AND email = ?').bind(treeId, email),
-    db.prepare('INSERT INTO invite (id, token_hash, tree_id, email, role, invited_by, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .bind(id, tokenHash, treeId, email, role, invitedBy, expiresAt),
-  ]);
-}
-
-export async function pendingInvites(db, treeId, now) {
-  const { results } = await db.prepare('SELECT id, email, role, expires_at FROM invite WHERE tree_id = ? AND expires_at > ? ORDER BY email')
-    .bind(treeId, now).all();
-  return results;
-}
-
-export function inviteById(db, treeId, id) {
-  return db.prepare('SELECT id, email, role FROM invite WHERE tree_id = ? AND id = ?').bind(treeId, id).first();
-}
-
-export function renewInvite(db, treeId, id, tokenHash, expiresAt) {
-  return db.prepare('UPDATE invite SET token_hash = ?, expires_at = ? WHERE tree_id = ? AND id = ?').bind(tokenHash, expiresAt, treeId, id).run();
-}
-
-export function deleteInvite(db, treeId, id) {
-  return db.prepare('DELETE FROM invite WHERE tree_id = ? AND id = ?').bind(treeId, id).run();
-}
-
-export function invite(db, tokenHash) {
-  return db.prepare('SELECT i.tree_id, i.email, i.role, i.expires_at, t.name AS tree_name FROM invite i JOIN tree t ON t.id = i.tree_id WHERE i.token_hash = ?')
-    .bind(tokenHash).first();
-}
-
-// Keeps the stronger role if the user is already a member.
-export async function acceptInvite(db, tokenHash, inv, userId, now) {
-  await db.batch([
-    db.prepare(
-      `INSERT INTO member (tree_id, user_id, role, created_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT (tree_id, user_id) DO UPDATE SET role = CASE WHEN member.role = 'viewer' THEN excluded.role ELSE member.role END`,
-    ).bind(inv.tree_id, userId, inv.role, now),
-    db.prepare('DELETE FROM invite WHERE token_hash = ?').bind(tokenHash),
-  ]);
+export function sharedTree(db) {
+  return db.prepare("SELECT id, seq FROM tree WHERE id = 'human'").first();
 }
 
 // Versioned tree data
 
 export async function entities(db, treeId) {
-  const { results } = await db.prepare('SELECT id, kind, rev, data, deleted, created_seq, seq FROM entity WHERE tree_id = ?').bind(treeId).all();
+  const { results } = await db.prepare('SELECT id, kind, rev, data, deleted, created_seq, seq, created_by FROM entity WHERE tree_id = ?').bind(treeId).all();
   return results.map(parse);
 }
 
@@ -171,9 +75,9 @@ export async function writeChangeset(db, treeId, expectedSeq, userId, message, r
       db.prepare('INSERT INTO revision (tree_id, entity_id, rev, seq, kind, data, deleted) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .bind(treeId, r.entity_id, r.rev, seq, r.kind, data, r.deleted),
       db.prepare(
-        `INSERT INTO entity (tree_id, id, kind, rev, data, deleted, created_seq, seq) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
+        `INSERT INTO entity (tree_id, id, kind, rev, data, deleted, created_seq, seq, created_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8)
          ON CONFLICT (tree_id, id) DO UPDATE SET rev = excluded.rev, data = excluded.data, deleted = excluded.deleted, seq = excluded.seq`,
-      ).bind(treeId, r.entity_id, r.kind, r.rev, data, r.deleted, seq),
+      ).bind(treeId, r.entity_id, r.kind, r.rev, data, r.deleted, seq, r.created_by),
     );
   }
   try {
@@ -193,7 +97,7 @@ export async function changesets(db, treeId, after, limit) {
   ).bind(treeId, after, limit).all();
   if (!sets.length) return [];
   const { results: revs } = await db.prepare(
-    'SELECT entity_id, kind, rev, seq, data, deleted FROM revision WHERE tree_id = ? AND seq BETWEEN ? AND ? ORDER BY seq',
+    'SELECT r.entity_id, r.kind, r.rev, r.seq, r.data, r.deleted, e.created_by FROM revision r JOIN entity e ON e.tree_id = r.tree_id AND e.id = r.entity_id WHERE r.tree_id = ? AND r.seq BETWEEN ? AND ? ORDER BY r.seq',
   ).bind(treeId, sets[0].seq, sets[sets.length - 1].seq).all();
   const bySeq = new Map(sets.map((c) => [c.seq, { ...c, ops: [] }]));
   for (const r of revs) {
@@ -266,12 +170,13 @@ const mediaKey = (treeId, id) => `trees/${treeId}/media/${id}`;
 
 export async function putMedia(db, bucket, treeId, m, body) {
   await bucket.put(mediaKey(treeId, m.id), body, { httpMetadata: { contentType: m.content_type } });
-  await db.prepare('INSERT INTO media (tree_id, id, entity_id, content_type, bytes, uploaded_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .bind(treeId, m.id, m.entity_id, m.content_type, m.bytes, m.uploaded_by, m.created_at).run();
+  await db.prepare('INSERT INTO media (tree_id, id, entity_id, content_type, bytes, uploaded_by, created_at, storage_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .bind(treeId, m.id, m.entity_id, m.content_type, m.bytes, m.uploaded_by, m.created_at, mediaKey(treeId, m.id)).run();
 }
 
-export function getMedia(bucket, treeId, id) {
-  return bucket.get(mediaKey(treeId, id));
+export async function getMedia(db, bucket, treeId, id) {
+  const row = await db.prepare('SELECT storage_key FROM media WHERE tree_id = ? AND id = ?').bind(treeId, id).first();
+  return row ? bucket.get(row.storage_key) : null;
 }
 
 // Email

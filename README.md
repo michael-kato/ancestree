@@ -1,44 +1,54 @@
 # Ancestree
 
-A family tree your whole family edits together: a visual node tree, accounts, full edit history with undo, a replay that rewinds and plays the tree growing, a generations view, family chat and comments on each person. Runs on Cloudflare Workers + D1 + R2.
+One shared human tree. Anyone can view it for free. Any registered user can add people and edit unlocked nodes. There are no named family groups, memberships, invites, or owner roles.
+
+A node creator can lock or unlock that node. A lock protects the person's details, removal, and relationships. Only its creator can edit it while it is locked. New nodes are unlocked by default. All edits have a history. Undo and restore add edits; they do not erase history.
+
+Select a person to see relation colors. The gradient runs from mint to lavender as the shortest recorded path gets longer. Each parent, child, or partner link counts as one step. Adoptive, step, and foster links also count. Gray means no recorded path. These are graph distances, not genetic measurements. The legend and card labels give the distance without color.
 
 ## Run locally
 
+Use Node.js 24 or later.
+
 ```bash
 npm install
-cp .dev.vars.example .dev.vars          # Turnstile test keys
+cp .dev.vars.example .dev.vars
 npx wrangler d1 migrations apply ancestree-db --local
-npx wrangler dev                         # http://localhost:8787
+npx wrangler dev
 ```
 
-Sign-in links are emailed. Locally, wrangler writes each email to a text file under `.wrangler/tmp/email/` and prints its path in the dev log. Open the link from there.
+Open [the local viewer](http://localhost:8787). Sign in to contribute. Sign-in links are sent by email. In local development, Wrangler saves each email under `.wrangler/tmp/email/` and prints its path.
+
+## Check
+
+```bash
+npm test
+npm run coverage
+npm run benchmark
+npx wrangler deploy --dry-run
+```
+
+The tests use Node's SQLite module and an in-memory database. They check public reads, registered-user edits, node locks, stale writes, migration, replay, media paths, and color contrast. Browser controls need a separate browser check. See [the state map](docs/state/README.md) and [verification results](docs/state/verification.md).
+
+## Existing data
+
+Migration `0003_shared_tree.sql` combines all prior trees into the shared tree. Before applying it to a live database, export a backup and check that all existing records can become public. This includes prior chat, comments, notes, and media.
+
+The migration preserves people, relationships, revisions, comments, and media paths. It keeps unique IDs and replaces IDs that occur in more than one old tree. It combines the sequence counters without losing edit order within each prior tree. A node's creator is the author of its first recorded revision. Older nodes start unlocked. Memberships and pending invites are removed. The migration does not identify or combine duplicate people.
+
+The API now uses `/api/tree`. Old `/api/trees/:id` clients must change. Existing browser links open the shared viewer.
 
 ## Deploy
 
+Configure the D1 database, R2 bucket, email sender, and Turnstile bindings in `wrangler.jsonc`. Set `TURNSTILE_SECRET` with Wrangler's secret command. Then apply migrations and deploy:
+
 ```bash
-npx wrangler d1 create ancestree-db         # paste database_id into wrangler.jsonc
-npx wrangler r2 bucket create ancestree-media
-npx wrangler email sending enable yourdomain.com
-npx wrangler secret put TURNSTILE_SECRET
 npx wrangler d1 migrations apply ancestree-db --remote
 npx wrangler deploy
 ```
 
-Set `MAIL_FROM` (an address on the onboarded domain) and `TURNSTILE_SITEKEY` in `wrangler.jsonc`.
+## Current limits
 
-## Gotchas
+The data model has no family boundaries. The current viewer and edit validator still load the full graph. Global history and comments also share one sequence counter. This version has not been verified at population scale. Before large imports, add indexed neighborhood queries, bounded history loading, viewport rendering, and a write path that does not use one global counter. Test these with large synthetic graphs and concurrent edits.
 
-- Emailing arbitrary addresses needs the Workers Paid plan (Email Sending is in beta).
-- Every edit is an immutable changeset. Undo and "Restore tree to this step" add new edits; nothing is deleted.
-- Two people editing the same person: the second save is rejected with "changed by someone else" and must be redone.
-- One edit can change at most 200 people/relationships, so restoring a very old step of a large tree may need doing in parts.
-- Roles: owner (invites, roles), editor (edits), viewer (reads, comments). An invite link signs its recipient in as the invited address, so it shouldn't be forwarded.
-
-## API example
-
-```bash
-curl -b cookies -H 'Origin: http://localhost:8787' -H 'Content-Type: application/json' \
-  http://localhost:8787/api/trees/$TREE/changesets \
-  -d '{"message":"Added Ann","ops":[{"id":"ann","kind":"person","base_rev":0,"data":{"given":"Ann","birth":"1950"}}]}'
-# → {"changeset":{"seq":1,"user_name":"…","ops":[{"entity_id":"ann","rev":1,…}]}}
-```
+One edit can change at most 200 people or relationships. Large restores need separate edits. A second edit to an old node revision is rejected and must be repeated against the current data.

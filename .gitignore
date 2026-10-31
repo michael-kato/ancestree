@@ -5,3 +5,7 @@ logs/
 .claude/
 *.md
 !/README.md
+coverage/
+.metrics/
+target/
+!/docs/state/*.md

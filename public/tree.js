@@ -3,6 +3,7 @@
 
 export class Invalid extends Error {}
 export class Conflict extends Error {}
+export class Forbidden extends Error {}
 
 const MAX_OPS = 200;
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -14,7 +15,7 @@ const SEXES = ['', 'female', 'male', 'other'];
 const PARENT_TYPES = ['birth', 'adoptive', 'step', 'foster'];
 const PARTNER_TYPES = ['married', 'partner'];
 
-export const canEdit = (role) => role === 'owner' || role === 'editor';
+export const canEdit = (userId, person) => Boolean(userId && (!person?.data.locked || person.created_by === userId));
 
 export function emptyState() {
   return { seq: 0, entities: new Map() };
@@ -36,6 +37,7 @@ export function apply(state, cs) {
       rev: op.rev,
       data: op.data,
       deleted: op.deleted ? 1 : 0,
+      created_by: prev?.created_by || op.created_by || cs.user_id,
       created_seq: prev ? prev.created_seq : cs.seq,
       seq: cs.seq,
     });
@@ -79,6 +81,8 @@ function clean(kind, d) {
     out.birth = date(d.birth, 'birth');
     out.death = date(d.death, 'death');
     out.photo = d.photo ? ref(d.photo, 'photo') : '';
+    if (d.locked != null && typeof d.locked !== 'boolean') throw new Invalid('locked must be a boolean');
+    out.locked = Boolean(d.locked);
     return out;
   }
   if (kind === 'parent') {
@@ -138,7 +142,8 @@ function checkInvariants(entities) {
 }
 
 // ops: [{ id, kind, base_rev, data?, deleted? }] -> revisions ready to store.
-export function validate(state, ops) {
+export function validate(state, ops, userId) {
+  if (!userId) throw new Forbidden('Sign in to edit');
   if (!Array.isArray(ops) || ops.length === 0) throw new Invalid('ops must be a non-empty list');
   if (ops.length > MAX_OPS) throw new Invalid(`At most ${MAX_OPS} changes at once`);
   const ids = new Set();
@@ -156,12 +161,55 @@ export function validate(state, ops) {
     const deleted = op.deleted ? 1 : 0;
     if (!cur && deleted) throw new Invalid(`${id} doesn't exist`);
     const data = deleted ? cur.data : clean(kind, op.data);
+    checkEditAccess(state, cur, kind, data, userId);
     if (cur && cur.deleted === deleted && same(cur.data, data)) continue;
-    revs.push({ entity_id: id, kind, rev: (cur ? cur.rev : 0) + 1, data, deleted });
+    revs.push({ entity_id: id, kind, rev: (cur ? cur.rev : 0) + 1, data, deleted, created_by: cur?.created_by || userId });
   }
   if (revs.length === 0) throw new Invalid('Nothing changed');
   checkInvariants(apply(state, { seq: state.seq + 1, ops: revs }).entities);
   return revs;
+}
+
+function checkEditAccess(state, cur, kind, data, userId) {
+  if (kind === 'person') {
+    return checkPersonAccess(cur, data, userId);
+  }
+  for (const d of [cur?.data, data].filter(Boolean)) {
+    const ids = kind === 'parent' ? [d.parent, d.child] : [d.a, d.b];
+    if (ids.some((id) => !canEdit(userId, state.entities.get(id)))) {
+      throw new Forbidden('A person in this relationship is locked by its creator');
+    }
+  }
+}
+
+function checkPersonAccess(cur, data, userId) {
+  if (!canEdit(userId, cur)) throw new Forbidden('This node is locked by its creator');
+  if (cur && Boolean(cur.data.locked) !== Boolean(data.locked) && cur.created_by !== userId) {
+    throw new Forbidden('Only the node creator can change its lock');
+  }
+}
+
+export function relationshipDistances(state, focus) {
+  const distances = new Map();
+  const person = state.entities.get(focus);
+  if (!isLive(person) || person.kind !== 'person') return distances;
+  const { parents, children, partners } = relatives(state);
+  const queue = [focus];
+  distances.set(focus, 0);
+  for (const id of queue) {
+    const neighbors = [...(parents.get(id) || []), ...(children.get(id) || []), ...(partners.get(id) || [])];
+    for (const next of neighbors) {
+      if (distances.has(next.id)) continue;
+      distances.set(next.id, distances.get(id) + 1);
+      queue.push(next.id);
+    }
+  }
+  return distances;
+}
+
+export function relationshipColor(distance) {
+  if (distance == null) return '#d4deeb';
+  return `hsl(${165 + Math.min(distance, 6) * 15} 55% 86%)`;
 }
 
 export function relatives(state) {
