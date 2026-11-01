@@ -4,7 +4,7 @@ One shared human tree. Anyone can view it for free. Any registered user can add 
 
 A node creator can lock or unlock that node. A lock protects the person's details, removal, and relationships. Only its creator can edit it while it is locked. New nodes are unlocked by default. All edits have a history. Undo and restore add edits; they do not erase history.
 
-Select a person to focus the tree. Cards use stable branch colors, and each parent, child, or partner link counts as one step. Cards and connections fade with distance and are hidden after four steps. Adoptive, step, and foster links also count. These are graph distances, not genetic measurements. Select Show all to see the whole tree, or use Find a person to focus another person.
+Select a person to highlight their connections. Cards use a stable gradient across family links, and each parent, child, or partner link counts as one step. Distant cards and connections become less saturated and slightly darker. Adoptive, step, and foster links also count. These are graph distances, not genetic measurements. Select Clear selection to remove the emphasis, or use Find a person to select another person.
 
 The timelapse keeps each person in the same position as the year changes. New cards grow from a visible relative when possible. A short sound marks new cards; use Sound on or Sound off to control it.
 

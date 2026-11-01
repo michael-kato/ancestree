@@ -27,18 +27,23 @@ export function wrapText(text, width, measure) {
 }
 
 export function cardLayout(name, subtitle, photo, measure) {
-  const textX = photo ? 60 : 16;
-  const width = Math.max(188, Math.min(340, Math.max(measure(name), measure(subtitle)) + textX + 16));
-  const nameLines = wrapText(name, width - textX - 16, measure);
-  const subtitleLines = wrapText(subtitle, width - textX - 16, measure);
+  const padding = photo ? 60 : 16;
+  const width = Math.max(188, Math.min(340, Math.max(measure(name), measure(subtitle)) + padding * 2));
+  const textX = width / 2, textWidth = width - padding * 2;
+  const nameLines = wrapText(name, textWidth, measure);
+  const subtitleLines = wrapText(subtitle, textWidth, measure);
   const textHeight = nameLines.length * 20 + subtitleLines.length * 17 + (subtitleLines.length ? 4 : 0);
   const height = Math.max(76, textHeight + 40);
   const nameY = (height - textHeight) / 2 + 15;
-  return { width, height, textX, nameLines, subtitleLines, nameY, subtitleY: nameY + nameLines.length * 20 + 4 };
+  return { width, height, textX, textWidth, nameLines, subtitleLines, nameY, subtitleY: nameY + nameLines.length * 20 + 4 };
 }
 
 export const ports = ({ width, height }) => [['top', width / 2, 0], ['bottom', width / 2, height], ['left', 0, height / 2], ['right', width, height / 2]];
-export const nodeOpacity = (distance, focused) => focused ? ([1, 1, 0.8, 0.5, 0.24][distance] ?? 0) : 1;
+export function distanceFilter(distance, focused) {
+  if (!focused || distance <= 1) return 'none';
+  const amount = Math.min(1, ((distance ?? 4) - 1) / 3);
+  return `saturate(${(1 - amount * 0.55).toFixed(2)}) brightness(${(1 - amount * 0.15).toFixed(2)})`;
+}
 
 export function defaultFocus(state) {
   const { parents, children, partners } = relatives(state);
@@ -55,18 +60,17 @@ function anchorColor(id) {
 }
 
 export function branchColors(state) {
-  const { parents, children } = relatives(state);
-  const people = [...state.entities.values()].filter((e) => isLive(e) && e.kind === 'person');
-  const pending = new Map(people.map((p) => [p.id, (parents.get(p.id) || []).length]));
-  const queue = people.filter((p) => !pending.get(p.id)).map((p) => p.id);
-  const colors = new Map();
-  for (const id of queue) {
-    const inherited = (parents.get(id) || []).map((p) => colors.get(p.id));
-    colors.set(id, inherited.length ? [0, 1].map((axis) => inherited.reduce((sum, c) => sum + c[axis], 0) / inherited.length) : anchorColor(id));
-    for (const child of children.get(id) || []) {
-      pending.set(child.id, pending.get(child.id) - 1);
-      if (!pending.get(child.id)) queue.push(child.id);
-    }
+  const { parents, children, partners } = relatives(state);
+  const ids = [...state.entities.values()].filter((e) => isLive(e) && e.kind === 'person').map((e) => e.id).sort();
+  const anchors = new Map(ids.map((id) => [id, anchorColor(id)]));
+  const neighbors = new Map(ids.map((id) => [id, [...new Set([...(parents.get(id) || []), ...(children.get(id) || []), ...(partners.get(id) || [])].map((r) => r.id))].filter((other) => anchors.has(other)).sort()]));
+  let colors = anchors;
+  for (let pass = 0; pass < 8; pass++) {
+    const previous = colors;
+    colors = new Map(ids.map((id) => {
+      const group = [id, ...neighbors.get(id)];
+      return [id, [0, 1].map((axis) => anchors.get(id)[axis] * 0.2 + 0.8 * group.reduce((sum, member) => sum + previous.get(member)[axis], 0) / group.length)];
+    }));
   }
   return colors;
 }

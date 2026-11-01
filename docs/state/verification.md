@@ -14,12 +14,14 @@ sources:
   - test/database.js
   - test/relationship-benchmark.js
   - package.json
-checked: d8937cd
+checked: f996299
 ---
 
 Checks ran on 2026-10-31 with Node.js 24.14.1 and the installed Wrangler 4.151.3. The local Worker used separate storage at `/tmp/ancestree-shared-dev`. Live data was not changed.
 
 The viewer update also passed 26 tests, a Wrangler deployment dry run, a 0.8 duplicate check, and browser checks with existing and synthetic records. Browser checks found no clipped names in the synthetic data. Thirty cards retained their positions when the timelapse moved from 2026 to 1900. The mute control changed its state. Audio output was not measured. The new view module had 100% line coverage and each measured function scored below CRAP 10. Mutation testing killed 109 of 163 mutations; 54 survived. The browser module is outside Node coverage. UML metrics were not displayed because the viewer and Clojure CLI were unavailable.
+
+The later color update passed 26 tests. A local browser check found all 61 cards visible, centered card names, and no viewport movement when another person was selected. The view module had 100% line coverage and each measured function scored below CRAP 10. Mutation testing reported 113 killed and 60 surviving mutations across the view module.
 
 ## Results
 

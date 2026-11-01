@@ -12,7 +12,7 @@ sources:
   - public/tree.js
   - public/view.js
   - migrations/0003_shared_tree.sql
-checked: d8937cd
+checked: f996299
 diagramLinks:
   Locks: node-locks
 ---
@@ -35,7 +35,7 @@ The Worker uses one internal tree record with ID `human`. The database retains `
 
 Edits read a sequence and the current entities. Validation checks node revisions, locks, relationship endpoints, and graph rules. The database batch writes only if the sequence is still current. If another write wins, the Worker reads the data again and repeats validation.
 
-Branch colors remain stable when the selection changes. Each parent, child, and partner link adds one step. Cards and connections fade by shortest path distance and are hidden after four steps. The viewer starts with the most connected person selected. Show all removes the distance filter. Labels give the distance in text.
+Branch colors blend across parent, child, and partner links and remain stable when the selection changes. Each link adds one step. Cards and connections become less saturated and slightly darker with distance; all remain visible. The viewer starts with the most connected person selected. Clear selection removes the distance emphasis. Labels give the distance in text. Selecting a person does not move the viewport.
 
 Timelapse uses one layout for all years. Cards enter from a visible relative when possible, and a sound can mark arrivals. The viewport stays in place while the year changes.
 

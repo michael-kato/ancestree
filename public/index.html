@@ -96,7 +96,6 @@ label.field { display: grid; gap: var(--s1); font-size: 14px; font-weight: 600; 
 .app { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 400px; grid-template-rows: auto minmax(0, 1fr); }
 .bar { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--s4); padding: var(--s2) var(--s4); border-bottom: 1px solid var(--rule); background: var(--paper); min-height: 56px; }
 .bar .home { font-weight: 600; text-decoration: none; font-size: 18px; }
-.bar .tree-title { font-size: 18px; font-weight: 400; color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bar .spacer { flex: 1; }
 .person-picker { width: 180px; min-height: 32px; padding: 4px 8px; border: 1.5px solid var(--rule); border-radius: 8px; background: var(--paper); color: var(--ink); font-size: 14px; }
 .modes { display: inline-flex; border: 1.5px solid var(--rule); border-radius: 8px; padding: 2px; }
@@ -115,7 +114,6 @@ label.field { display: grid; gap: var(--s1); font-size: 14px; font-weight: 600; 
 .person .years { fill: var(--card-ink-soft); font-size: 13px; }
 .person { cursor: pointer; transition: opacity .18s; }
 .person:focus-visible { opacity: 1 !important; }
-.distant { visibility: hidden; pointer-events: none; }
 .person:hover rect { stroke: var(--print); stroke-width: 3; }
 .person:focus { outline: none; }
 .person:focus-visible rect { stroke: var(--focus); stroke-width: 3; }

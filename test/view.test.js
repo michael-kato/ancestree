@@ -21,8 +21,9 @@ test('cards contain complete short, long, Japanese, and unbroken names', () => {
     const card=V.cardLayout(name,'1869–1947',true,measure);
     assert.equal(card.nameLines.join('').replace(/\s/g,''),name.replace(/\s/g,''));
     assert.ok(card.width>=188 && card.width<=340);
-    assert.ok(card.nameLines.every((line)=>measure(line)<=card.width-card.textX-16));
-    assert.ok(card.subtitleLines.every((line)=>measure(line)<=card.width-card.textX-16));
+    assert.equal(card.textX,card.width/2);
+    assert.ok(card.nameLines.every((line)=>measure(line)<=card.textWidth));
+    assert.ok(card.subtitleLines.every((line)=>measure(line)<=card.textWidth));
     assert.ok(card.subtitleY+(card.subtitleLines.length-1)*17<card.height-12);
   }
   assert.deepEqual(V.wrapText('',100,measure),[]);
@@ -35,9 +36,12 @@ test('drag ports follow the measured card bounds', () => {
   assert.deepEqual(V.ports({width:300,height:100}),[['top',150,0],['bottom',150,100],['left',0,50],['right',300,50]]);
 });
 
-test('distance fades at two, three and four links and hides everything beyond four', () => {
-  assert.deepEqual([0,1,2,3,4,5,undefined].map((n)=>V.nodeOpacity(n,true)),[1,1,0.8,0.5,0.24,0,0]);
-  assert.equal(V.nodeOpacity(undefined,false),1);
+test('distance mutes distant people without hiding them', () => {
+  assert.equal(V.distanceFilter(0,true),'none');
+  assert.equal(V.distanceFilter(1,true),'none');
+  assert.match(V.distanceFilter(5,true),/saturate\(0\.45\) brightness\(0\.85\)/);
+  assert.equal(V.distanceFilter(undefined,true),V.distanceFilter(5,true));
+  assert.equal(V.distanceFilter(undefined,false),'none');
 });
 
 test('default focus uses the most connected person with a stable tie order', () => {
@@ -47,11 +51,14 @@ test('default focus uses the most connected person with a stable tie order', () 
   assert.equal(V.defaultFocus(state()),null);
 });
 
-test('branch colors are stable and blend both birth and adoptive parent colors', () => {
+test('branch colors form a stable gradient through family links', () => {
   const graph=state(person('a'),person('b'),person('child'),parent('ac','a','child'),parent('bc','b','child','adoptive'));
   const colors=V.branchColors(graph), reverse=V.branchColors(state(...[...graph.entities.values()].reverse()));
   for(const [id,color] of colors)assert.deepEqual(reverse.get(id),color);
-  for(let i=0;i<2;i++)assert.equal(colors.get('child')[i],(colors.get('a')[i]+colors.get('b')[i])/2);
+  assert.notDeepEqual(colors.get('child'),colors.get('a'));
+  const chain=V.branchColors(state(person('a'),person('b'),parent('ab','a','b')));
+  assert.notDeepEqual(chain.get('a'),chain.get('b'));
+  assert.ok(Math.hypot(...chain.get('a').map((v,i)=>v-chain.get('b')[i]))<0.05);
   assert.match(V.colorCss(colors.get('child')),/^oklab\(80% /);
   const many=V.branchColors(state(...Array.from({length:1000},(_,i)=>person(`person-${i}`))));
   assert.equal(new Set([...many.values()].map(V.colorCss)).size,1000);

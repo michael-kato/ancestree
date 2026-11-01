@@ -265,7 +265,7 @@ function buildWorkspace() {
   V.el.empty = h('div', { class: 'empty' });
   V.el.player = h('div', { class: 'player', hidden: true });
   V.el.find = h('select', { class: 'person-picker', 'aria-label': 'Find a person', onchange: (ev) => { if (ev.target.value) select(ev.target.value); ev.target.value = ''; } });
-  V.el.overview = h('button', { class: 'btn quiet small', onclick: () => select(null) }, 'Show all');
+  V.el.overview = h('button', { class: 'btn quiet small', onclick: () => select(null) }, 'Clear selection');
   V.el.legend = h('div', { class: 'relation-legend', 'aria-live': 'polite' });
   V.el.sound = h('button', { class: 'btn quiet small', 'aria-pressed': 'true', onclick: () => {
     V.sound = !V.sound;
@@ -279,7 +279,6 @@ function buildWorkspace() {
   root.replaceChildren(h('div', { class: 'app' },
     h('header', { class: 'bar' },
       h('a', { class: 'home', href: '/', onclick: (ev) => { ev.preventDefault(); go('/'); } }, 'Ancestree'),
-      h('h1', { class: 'tree-title' }, 'The human tree'),
       h('span', { class: 'spacer' }), V.el.find, V.el.overview, V.el.modes, V.el.sound,
       editor() && h('button', { class: 'btn quiet small', onclick: () => { V.selected = null; openForm({ type: 'add', relation: 'first' }); } }, 'Add person'),
       me ? h('button', { class: 'btn quiet small', onclick: signOut }, 'Sign out')
@@ -425,7 +424,7 @@ function measureCards(people) {
 }
 
 function cardText(text, lines, x, y, step) {
-  text.attr('x', x).attr('y', y).selectAll('tspan').data(lines).join('tspan')
+  text.attr('x', x).attr('y', y).attr('text-anchor', 'middle').selectAll('tspan').data(lines).join('tspan')
     .attr('x', x).attr('dy', (_, i) => i ? step : 0).text((line) => line);
 }
 
@@ -447,10 +446,7 @@ async function draw({ highlight = new Set(), duration = 450, fit = false } = {})
   const previous = V.renderedIds;
   const incoming = previous ? g.people.filter((p) => !previous.has(p.id)) : [];
   const relationships = T.relatives(state);
-  const focus = visible && !visible.has(V.selected) ? null : V.selected;
-  const distances = T.relationshipDistances(state, focus);
-  if (incoming.some((p) => G.nodeOpacity(distances.get(p.id), Boolean(focus))) &&
-      (V.mode !== 'generations' || (V.lastGenerationYear != null && V.year > V.lastGenerationYear))) popSound();
+  if (incoming.length && (V.mode !== 'generations' || (V.lastGenerationYear != null && V.year > V.lastGenerationYear))) popSound();
   V.renderedIds = new Set(g.people.map((p) => p.id));
   if (V.mode === 'generations') V.lastGenerationYear = V.year;
   V.cards = cards;
@@ -522,19 +518,6 @@ async function draw({ highlight = new Set(), duration = 450, fit = false } = {})
   renderEmpty(g.people.length);
   if (fit || !V.fitted) { fitView(layout, duration, visible); V.fitted = true; }
   V.pos = pos;
-}
-
-// Pan (keeping the zoom) so a person is on screen, e.g. after adding them or picking them from a list.
-function ensureVisible(id) {
-  const p = V.pos?.get(id);
-  if (!p) return;
-  const svg = V.el.svg.node(), { width, height } = svg.getBoundingClientRect();
-  const tr = d3.zoomTransform(svg), [x, y] = tr.apply([p.x, p.y]);
-  const margin = 24;
-  if (x >= margin && y >= margin && tr.k >= 0.8 && x + p.width * tr.k <= width - margin && y + p.height * tr.k <= height - margin) return;
-  const k = Math.max(0.8, tr.k);
-  const next = d3.zoomIdentity.translate(width / 2 - (p.x + p.width / 2) * k, height / 2 - (p.y + p.height / 2) * k).scale(k);
-  V.el.svg.transition().duration(reduceMotion ? 0 : 450).call(V.zoom.transform, next);
 }
 
 function setBadge(g, d) {
@@ -682,30 +665,28 @@ function select(id) {
   V.el.people.selectAll('g.person').classed('selected', (d) => d.id === id);
   const shown = shownState();
   colorPeople(shown.state, shown.visible);
-  if (id) ensureVisible(id);
   renderPanel();
 }
 
 function colorPeople(state, visible) {
   const focus = T.isLive(state.entities.get(V.selected)) && (!visible || visible.has(V.selected)) ? V.selected : null;
   const distances = T.relationshipDistances(state, focus);
-  const colors = G.branchColors(state);
-  const opacity = (id) => G.nodeOpacity(distances.get(id), Boolean(focus));
+  const colors = V.colorState?.state === state ? V.colorState.colors : G.branchColors(state);
+  V.colorState = { state, colors };
+  const filter = (id) => G.distanceFilter(distances.get(id), Boolean(focus));
   const from = nameOf(state.entities.get(focus));
   V.el.people.selectAll('g.person:not(.exiting)').each(function (d) {
     const distance = distances.get(d.id);
     const label = focus ? (distance == null ? `No recorded path to ${from}` : `${distance} relationship links from ${from}`) : 'Select this person to focus the tree';
     const g = d3.select(this);
-    g.classed('selected', d.id === focus).classed('distant', opacity(d.id) === 0)
-      .style('--relation-color', G.colorCss(colors.get(d.id))).style('opacity', opacity(d.id))
-      .attr('data-distance', distance).attr('tabindex', opacity(d.id) ? 0 : -1)
-      .attr('aria-hidden', opacity(d.id) ? null : 'true');
+    g.classed('selected', d.id === focus)
+      .style('--relation-color', G.colorCss(colors.get(d.id))).style('filter', filter(d.id))
+      .attr('data-distance', distance).attr('tabindex', 0).attr('aria-hidden', null);
     g.attr('aria-label', `${fullName(d.data) || 'Unknown'}. ${label}.${d.data.locked ? ' Locked.' : ''}`);
     g.select('title').text(`${fullName(d.data) || 'Unknown'}: ${label}${d.data.locked ? '. Locked' : ''}`);
   });
   V.el.edges.selectAll('path:not(.exiting)').classed('highlighted', (d) => d.a === focus || d.b === focus)
-    .classed('distant', (d) => Math.min(opacity(d.a), opacity(d.b)) === 0)
-    .style('opacity', (d) => Math.min(opacity(d.a), opacity(d.b)))
+    .style('filter', (d) => G.distanceFilter(Math.max(distances.get(d.a) ?? Infinity, distances.get(d.b) ?? Infinity), Boolean(focus)))
     .style('--edge-color', (d) => G.colorCss([0, 1].map((axis) => ((colors.get(d.a) || [0, 0])[axis] + (colors.get(d.b) || [0, 0])[axis]) / 2)));
   V.el.edges.selectAll('.highlighted').raise();
   V.el.overview.disabled = !focus;
@@ -713,7 +694,7 @@ function colorPeople(state, visible) {
     h('strong', {}, `Links from ${from}`),
     h('div', { class: 'relation-scale' }, [0, 1, 2, 3, 4].map((n) =>
       h('span', { style: `background:${G.colorCss(colors.get(focus))}` }, n))),
-    h('span', {}, 'Colors follow branches. More than 4 links away is hidden.'),
+    h('span', {}, 'Colors follow branches. Distant relatives are muted.'),
   ]);
   V.el.legend.hidden = !focus;
 }
