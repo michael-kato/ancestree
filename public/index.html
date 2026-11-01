@@ -11,34 +11,22 @@
 <script src="https://cdn.jsdelivr.net/npm/elkjs@0.12.0/lib/elk.bundled.js" defer></script>
 <script type="module" src="/app.js"></script>
 <style>
-/* Cyanotype: the canvas is the print (Prussian ground, white exposure, sun for change);
-   everything around it is quiet paper and ink. */
 :root {
-  --prussian: #1b3f78;
-  --prussian-deep: #122f5d;
-  --print: #eef3fa;
-  --print-dim: #a9bddb;
-  --sun: #f4c152;
-  --paper: #fafbfd;
-  --paper-2: #eef1f6;
-  --ink: #15294a;
-  --ink-soft: #4d5f7d;
-  --rule: #d5dce8;
-  --danger: #a8402c;
-  --focus: #f4c152;
+  --prussian: #4b6078;
+  --prussian-deep: #51647a;
+  --print: #f3f5f7;
+  --print-dim: #edf1f5;
+  --sun: #ffe29b;
+  --paper: #b0bccb;
+  --paper-2: #a1afc0;
+  --ink: #172638;
+  --ink-soft: #304159;
+  --rule: #65758a;
+  --danger: #7a231d;
+  --focus: #ffe29b;
   --font: "Atkinson Hyperlegible Next", system-ui, sans-serif;
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
   color-scheme: light;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --paper: #0f2142; --paper-2: #16294f; --ink: #e6edf7; --ink-soft: #a3b3cd; --rule: #2a3f66; --danger: #e48a72;
-    color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --paper: #0f2142; --paper-2: #16294f; --ink: #e6edf7; --ink-soft: #a3b3cd; --rule: #2a3f66; --danger: #e48a72;
-  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -51,14 +39,7 @@ p { margin: 0; }
 a { color: inherit; }
 [hidden] { display: none !important; }
 
-/* Grain gives the blue its paper-print texture. */
-.ground {
-  background-color: var(--prussian);
-  background-image:
-    radial-gradient(ellipse at 50% 40%, transparent 40%, rgba(10, 30, 66, .55) 100%),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  color: var(--print);
-}
+.ground { background: #66788e; color: var(--print); }
 
 .btn {
   display: inline-flex; align-items: center; gap: var(--s2); min-height: 40px; padding: 0 var(--s4);
@@ -115,6 +96,7 @@ label.field { display: grid; gap: var(--s1); font-size: 14px; font-weight: 600; 
 .bar .home { font-weight: 700; text-decoration: none; letter-spacing: -.02em; font-size: 18px; }
 .bar .tree-title { font-size: 18px; font-weight: 400; color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bar .spacer { flex: 1; }
+.person-picker { width: 180px; min-height: 32px; padding: 4px 8px; border: 1.5px solid var(--rule); border-radius: 8px; background: var(--paper); color: var(--ink); font-size: 14px; }
 .modes { display: inline-flex; border: 1.5px solid var(--rule); border-radius: 999px; padding: 2px; }
 .modes button { border: 0; background: none; padding: 6px 14px; border-radius: 999px; cursor: pointer; font-weight: 600; color: var(--ink-soft); }
 .modes button[aria-pressed="true"] { background: var(--prussian); color: var(--print); }
@@ -126,19 +108,21 @@ label.field { display: grid; gap: var(--s1); font-size: 14px; font-weight: 600; 
 .empty > div { pointer-events: auto; display: grid; gap: var(--s4); justify-items: center; max-width: 34ch; font-size: 18px; }
 .empty .btn { background: var(--print); color: var(--prussian); border-color: var(--print); }
 
-.person rect { fill: var(--relation-color, #d4deeb); stroke: var(--relation-color, #d4deeb); stroke-width: 1.5; }
-.person .name { fill: #15294a; font-weight: 600; font-size: 15px; }
-.person .years { fill: #334868; font-size: 13px; }
-.person { cursor: pointer; }
+.person rect { fill: var(--relation-color, #d4deeb); stroke: var(--relation-color, #d4deeb); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.person .name { fill: var(--ink); font-weight: 600; font-size: 15px; }
+.person .years { fill: var(--ink-soft); font-size: 13px; }
+.person { cursor: pointer; transition: opacity .18s; }
+.person:focus-visible { opacity: 1 !important; }
+.distant { visibility: hidden; pointer-events: none; }
 .person:hover rect { stroke: var(--print); stroke-width: 3; }
 .person:focus { outline: none; }
 .person:focus-visible rect { stroke: var(--focus); stroke-width: 3; }
 .person.selected rect { stroke: var(--sun); stroke-width: 3; }
-.person.selected .name { fill: var(--prussian); }
-.person.selected .years { fill: var(--prussian); opacity: .75; }
-.person .lock { fill: #15294a; font-size: 9px; font-weight: 700; }
-.relation-legend { position: absolute; top: 12px; left: 12px; max-width: min(340px, calc(100% - 24px)); padding: 10px 12px; border-radius: 10px; background: #122f5d; color: #eef3fa; font-size: 12px; display: grid; gap: 5px; pointer-events: none; }
-.relation-scale { display: flex; gap: 2px; color: #15294a; }
+.person.selected .name { fill: var(--ink); }
+.person.selected .years { fill: var(--ink-soft); }
+.person .lock { fill: var(--ink); font-size: 9px; font-weight: 700; }
+.relation-legend { position: absolute; top: 12px; left: 12px; max-width: min(340px, calc(100% - 24px)); padding: 10px 12px; border-radius: 10px; background: var(--paper); color: var(--ink); font-size: 12px; display: grid; gap: 5px; pointer-events: none; }
+.relation-scale { display: flex; gap: 2px; color: var(--ink); }
 .relation-scale span { text-align: center; min-width: 30px; padding: 2px 5px; }
 .person.lit rect { animation: expose 1.6s ease-out; }
 @keyframes expose {
@@ -163,24 +147,25 @@ label.field { display: grid; gap: var(--s1); font-size: 14px; font-weight: 600; 
 .quick-names input { width: 100%; padding: 7px 9px; border: 1.5px solid var(--rule); border-radius: 8px; background: var(--paper); color: var(--ink); font-size: 15px; }
 .quick-names input:focus { border-color: var(--ink); outline: none; }
 @media (hover: none) { .can-grow .person.selected .port .dot { r: 9; } }
-.edge { fill: none; stroke: var(--print); stroke-opacity: .55; stroke-width: 1.5; }
+.edge { fill: none; stroke: color-mix(in oklab, var(--edge-color) 55%, var(--print)); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; transition: opacity .18s; pointer-events: none; }
+.edge.highlighted { stroke: var(--sun); stroke-width: 3; }
 .edge.chosen { stroke-dasharray: 5 4; }
 
 /* Replay / generations player sits on the print like an exposure strip. */
-.player { position: absolute; left: var(--s4); right: var(--s4); bottom: var(--s4); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--s3) var(--s4); padding: var(--s3) var(--s4); border-radius: 14px; background: rgba(10, 28, 60, .82); backdrop-filter: blur(6px); color: var(--print); }
+.player { position: absolute; left: var(--s4); right: var(--s4); bottom: var(--s4); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--s3) var(--s4); padding: var(--s3) var(--s4); border-radius: 14px; background: var(--paper); color: var(--ink); }
 .player .controls { display: flex; gap: var(--s1); }
-.player button.icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 999px; border: 1.5px solid rgba(238, 243, 250, .35); background: none; color: var(--print); cursor: pointer; }
-.player button.icon:hover { border-color: var(--print); }
-.player button.icon.play { background: var(--print); color: var(--prussian); border-color: var(--print); }
+.player button.icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 999px; border: 1.5px solid var(--rule); background: none; color: var(--ink); cursor: pointer; }
+.player button.icon:hover { border-color: var(--ink); }
+.player button.icon.play { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 .player input[type="range"] { width: 100%; accent-color: var(--sun); }
-.player select { background: transparent; color: var(--print); border: 1.5px solid rgba(238, 243, 250, .35); border-radius: 8px; padding: 6px 8px; }
+.player select { background: var(--paper); color: var(--ink); border: 1.5px solid var(--rule); border-radius: 8px; padding: 6px 8px; }
 .player select option { color: #15294a; }
 .caption { grid-column: 1 / -1; display: flex; align-items: baseline; gap: var(--s4); min-height: 28px; flex-wrap: wrap; }
 .caption .big { font-size: 28px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .caption .what { font-size: 16px; }
-.caption .when { font-size: 14px; color: var(--print-dim); }
+.caption .when { font-size: 14px; color: var(--ink-soft); }
 .caption .restore { margin-left: auto; }
-.caption .restore .btn { background: transparent; color: var(--print); border-color: rgba(238, 243, 250, .5); }
+.caption .restore .btn { background: transparent; color: var(--ink); border-color: var(--rule); }
 
 /* Side panel */
 .panel { border-left: 1px solid var(--rule); background: var(--paper); display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
@@ -228,6 +213,7 @@ label.field { display: grid; gap: var(--s1); font-size: 14px; font-weight: 600; 
   .caption .big { font-size: 22px; }
 }
 @media (prefers-reduced-motion: reduce) {
+  .person, .edge { transition: none; }
   .person.lit rect { animation: none; stroke: var(--sun); }
 }
 </style>

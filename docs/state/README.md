@@ -10,8 +10,9 @@ sources:
   - store.js
   - public/app.js
   - public/tree.js
+  - public/view.js
   - migrations/0003_shared_tree.sql
-checked: d742280
+checked: d8937cd
 diagramLinks:
   Locks: node-locks
 ---
@@ -25,7 +26,7 @@ flowchart LR
     API --> Store[Data access]
     Store --> D1[People and history]
     Store --> R2[Media objects]
-    Browser --> Colors[Shortest path colors]
+    Browser --> Colors[Branch colors and distance]
 ```
 
 The arrows show calls and data access. They are not a sequence of states.
@@ -34,10 +35,12 @@ The Worker uses one internal tree record with ID `human`. The database retains `
 
 Edits read a sequence and the current entities. Validation checks node revisions, locks, relationship endpoints, and graph rules. The database batch writes only if the sequence is still current. If another write wins, the Worker reads the data again and repeats validation.
 
-Relation colors count the shortest path from the selected person. With no selection, the viewer uses the first live person. Each parent, child, and partner link adds one step. Colors stop changing after six steps. Gray means there is no recorded path. Labels give the distance in text.
+Branch colors remain stable when the selection changes. Each parent, child, and partner link adds one step. Cards and connections fade by shortest path distance and are hidden after four steps. The viewer starts with the most connected person selected. Show all removes the distance filter. Labels give the distance in text.
+
+Timelapse uses one layout for all years. Cards enter from a visible relative when possible, and a sound can mark arrivals. The viewport stays in place while the year changes.
 
 See [node locks](node-locks.md), [migration and limits](../../README.md), and [verification results](verification.md).
 
 ## Gaps
 
-The viewer and validator load the full graph. Population-scale loading, rendering, and concurrent writes need a separate design and load tests. Browser checks do not contribute to Node coverage. Live migration and deployment have not run.
+The viewer and validator load the full graph. Population-scale loading, rendering, and concurrent writes need a separate design and load tests. Browser checks do not contribute to Node coverage.

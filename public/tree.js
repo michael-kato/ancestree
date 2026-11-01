@@ -207,11 +207,6 @@ export function relationshipDistances(state, focus) {
   return distances;
 }
 
-export function relationshipColor(distance) {
-  if (distance == null) return '#d4deeb';
-  return `hsl(${165 + Math.min(distance, 6) * 15} 55% 86%)`;
-}
-
 export function relatives(state) {
   const parents = new Map(), children = new Map(), partners = new Map();
   const push = (m, k, v) => (m.has(k) ? m.get(k).push(v) : m.set(k, [v]));

@@ -1,13 +1,12 @@
 // Browser app: screens, tree canvas, replay/generations player, side panel, live polling.
 import * as d3 from 'https://cdn.jsdelivr.net/npm/d3@7.9.0/+esm';
 import * as T from './tree.js';
+import * as G from './view.js';
 
-const NODE_W = 188, NODE_H = 58, UNION = 8, PHOTO = 40, COUPLE_GAP = 28;
-// Connection dots on each card: [side, x, y]. Top adds a parent, bottom a child, sides a partner.
-const PORTS = [['top', NODE_W / 2, 0], ['bottom', NODE_W / 2, NODE_H], ['left', 0, NODE_H / 2], ['right', NODE_W, NODE_H / 2]];
+const UNION = 8, PHOTO = 40, COUPLE_GAP = 28;
+const PORTS = ['top', 'bottom', 'left', 'right'];
 const PORT_DIR = { top: 'parent', bottom: 'child', left: 'partner', right: 'partner' };
 const PORT_HELP = { top: 'Drag to add a parent', bottom: 'Drag to add a child', left: 'Drag to add a partner', right: 'Drag to add a partner' };
-const BAR_BASE = 14, BAR_STEP = 9, BAR_GAP = 12, MAX_TRACKS = 4; // sibling bar heights above the child row
 const POLL_MS = 5000;
 const STEP_MS = 900; // one replay step at 1x
 const YEAR_MS = 220; // one generations year at 1x
@@ -119,9 +118,6 @@ function usDate(iso) {
 function fullName(d) {
   return d.nickname && d.given ? `${d.given} “${d.nickname}” ${d.surname || ''}`.trim() : T.displayName(d);
 }
-// Second line of a person card: the legal first name when they went by a nickname, and dates once they've died.
-const cardSubtitle = (d) => [d.nickname && d.given, T.lifespan(d)].filter(Boolean).join(', ');
-
 const nameOf = (e) => T.displayName(e?.data) || 'Unknown';
 const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 
@@ -236,14 +232,15 @@ function stopTree() {
 const editor = (person) => T.canEdit(me?.user.id, person);
 
 async function treeScreen() {
-  const data = await api('/tree');
+  const [data] = await Promise.all([api('/tree'), document.fonts.load('600 15px "Atkinson Hyperlegible Next"').catch(() => [])]);
+  const state = T.fromRows(data.tree.seq, data.entities), selected = G.defaultFocus(state);
   V = {
     tree: data.tree,
-    state: T.fromRows(data.tree.seq, data.entities), cursor: data.tree.seq,
+    state, cursor: data.tree.seq,
     replayer: null, logLoading: null,
     mode: 'live', frame: 0, year: null, playing: false, speed: 1,
-    selected: null, tab: 'chat', form: null,
-    comments: new Map(), drawn: null, drawToken: 0, fitted: false,
+    selected, tab: selected ? 'person' : 'chat', form: null,
+    comments: new Map(), drawn: null, drawToken: 0, fitted: false, sound: true,
     counts: new Map(Object.entries(data.comment_counts)), loadedAt: data.now, noteLive: new Map(),
   };
   buildWorkspace();
@@ -261,14 +258,21 @@ function buildWorkspace() {
   V.el.svg.append('defs').html('<clipPath id="avatar" clipPathUnits="objectBoundingBox"><circle cx=".5" cy=".5" r=".5"/></clipPath>');
   V.el.view = V.el.svg.append('g');
   V.el.edges = V.el.view.append('g');
-  V.el.unions = V.el.view.append('g');
   V.el.people = V.el.view.append('g');
   V.zoom = d3.zoom().scaleExtent([0.15, 2.5]).on('zoom', (ev) => V.el.view.attr('transform', ev.transform));
   V.el.svg.call(V.zoom).on('dblclick.zoom', null);
   V.el.svg.on('click', (ev) => { if (ev.target === V.el.svg.node()) { closeQuickAdd(); select(null); } });
   V.el.empty = h('div', { class: 'empty' });
   V.el.player = h('div', { class: 'player', hidden: true });
+  V.el.find = h('select', { class: 'person-picker', 'aria-label': 'Find a person', onchange: (ev) => { if (ev.target.value) select(ev.target.value); ev.target.value = ''; } });
+  V.el.overview = h('button', { class: 'btn quiet small', onclick: () => select(null) }, 'Show all');
   V.el.legend = h('div', { class: 'relation-legend', 'aria-live': 'polite' });
+  V.el.sound = h('button', { class: 'btn quiet small', 'aria-pressed': 'true', onclick: () => {
+    V.sound = !V.sound;
+    V.el.sound.textContent = V.sound ? 'Sound on' : 'Sound off';
+    V.el.sound.setAttribute('aria-pressed', String(V.sound));
+    if (V.sound) enableAudio();
+  } }, 'Sound on');
   V.el.stage = h('main', { class: 'stage ground' }, V.el.svg.node(), V.el.empty, V.el.player, V.el.legend);
   V.el.tabs = h('nav', { class: 'tabs', role: 'tablist' });
   V.el.body = h('div', { class: 'panel-body' });
@@ -276,7 +280,7 @@ function buildWorkspace() {
     h('header', { class: 'bar' },
       h('a', { class: 'home', href: '/', onclick: (ev) => { ev.preventDefault(); go('/'); } }, 'Ancestree'),
       h('h1', { class: 'tree-title' }, 'The human tree'),
-      h('span', { class: 'spacer' }), V.el.modes,
+      h('span', { class: 'spacer' }), V.el.find, V.el.overview, V.el.modes, V.el.sound,
       editor() && h('button', { class: 'btn quiet small', onclick: () => { V.selected = null; openForm({ type: 'add', relation: 'first' }); } }, 'Add person'),
       me ? h('button', { class: 'btn quiet small', onclick: signOut }, 'Sign out')
         : h('a', { class: 'btn quiet small', href: '/signin', onclick: (ev) => { ev.preventDefault(); go('/signin'); } }, 'Sign in to edit')),
@@ -296,6 +300,33 @@ const ELK_OPTIONS = {
   'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
 };
 let elk;
+let audio;
+
+function enableAudio() {
+  try {
+    const Context = window.AudioContext || window.webkitAudioContext;
+    if (!Context) return;
+    audio ||= new Context();
+    if (audio.state === 'suspended') audio.resume().catch(() => {});
+  } catch { return; }
+}
+
+document.addEventListener('pointerdown', enableAudio, { once: true });
+document.addEventListener('keydown', enableAudio, { once: true });
+
+function popSound() {
+  if (!V.sound || !audio || audio.state !== 'running') return;
+  const now = audio.currentTime, oscillator = audio.createOscillator(), gain = audio.createGain();
+  oscillator.type = 'sine';
+  oscillator.frequency.setValueAtTime(450, now);
+  oscillator.frequency.exponentialRampToValueAtTime(180, now + 0.06);
+  gain.gain.setValueAtTime(0.001, now);
+  gain.gain.linearRampToValueAtTime(0.045, now + 0.005);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+  oscillator.connect(gain).connect(audio.destination);
+  oscillator.start(now);
+  oscillator.stop(now + 0.06);
+}
 
 // What the canvas shows right now, depending on mode.
 function shownState() {
@@ -309,26 +340,35 @@ function shownState() {
 
 // Couples are laid out as one block node with fixed ports, so ELK keeps partners together
 // while it minimises crossings: a top port per member, a bottom port per set of their children.
-function elkGraph(g, blocks) {
-  const blockOf = new Map(), offset = new Map();
-  blocks.forEach((members, b) => members.forEach((id, i) => { blockOf.set(id, b); offset.set(id, i * (NODE_W + COUPLE_GAP)); }));
+function elkGraph(g, blocks, cards) {
+  const blockOf = new Map(), offset = new Map(), vertical = new Map();
+  const heights = blocks.map((members) => Math.max(...members.map((id) => cards.get(id).height)));
+  blocks.forEach((members, b) => {
+    let x = 0;
+    for (const id of members) {
+      blockOf.set(id, b);
+      offset.set(id, x);
+      vertical.set(id, (heights[b] - cards.get(id).height) / 2);
+      x += cards.get(id).width + COUPLE_GAP;
+    }
+  });
   const port = (id, x, y, side) => ({ id, x, y, width: 1, height: 1, layoutOptions: { 'elk.port.side': side } });
   const bottom = blocks.map(() => []);
   const edges = [], unionNodes = [];
-  const down = (u) => u.parents.map((p) => offset.get(p) + NODE_W / 2).reduce((a, b) => a + b) / u.parents.length;
+  const center = (id) => offset.get(id) + cards.get(id).width / 2;
   for (const u of g.unions) {
     if (!u.children.length) continue;
     const b = blockOf.get(u.parents[0]);
     const together = u.parents.every((p) => blockOf.get(p) === b);
     if (together) {
-      bottom[b].push(port(`pb:${u.id}`, down(u), NODE_H, 'SOUTH'));
+      const x = u.parents.reduce((sum, id) => sum + center(id), 0) / u.parents.length;
+      bottom[b].push(port(`pb:${u.id}`, x, heights[b], 'SOUTH'));
       u.children.forEach((c) => edges.push({ id: `${u.id}>${c}`, sources: [`pb:${u.id}`], targets: [`pt:${c}`] }));
     } else {
-      // Co-parents who aren't partners meet at a small junction node.
       unionNodes.push({ id: u.id, width: UNION, height: UNION });
       u.parents.forEach((p) => {
         const pid = `pb:${u.id}:${p}`;
-        bottom[blockOf.get(p)].push(port(pid, offset.get(p) + NODE_W / 2, NODE_H, 'SOUTH'));
+        bottom[blockOf.get(p)].push(port(pid, center(p), vertical.get(p) + cards.get(p).height, 'SOUTH'));
         edges.push({ id: `${p}>${u.id}`, sources: [pid], targets: [u.id] });
       });
       u.children.forEach((c) => edges.push({ id: `${u.id}>${c}`, sources: [u.id], targets: [`pt:${c}`] }));
@@ -336,11 +376,11 @@ function elkGraph(g, blocks) {
   }
   const children = blocks.map((members, b) => ({
     id: `b:${members[0]}`,
-    width: members.length * NODE_W + (members.length - 1) * COUPLE_GAP, height: NODE_H,
+    width: members.reduce((sum, id) => sum + cards.get(id).width + COUPLE_GAP, -COUPLE_GAP), height: heights[b],
     layoutOptions: { 'elk.portConstraints': 'FIXED_POS' },
-    ports: [...members.map((id) => port(`pt:${id}`, offset.get(id) + NODE_W / 2, 0, 'NORTH')), ...bottom[b]],
+    ports: [...members.map((id) => port(`pt:${id}`, center(id), vertical.get(id), 'NORTH')), ...bottom[b]],
   }));
-  return { graph: { id: 'root', layoutOptions: ELK_OPTIONS, children: [...children, ...unionNodes], edges }, offset };
+  return { graph: { id: 'root', layoutOptions: ELK_OPTIONS, children: [...children, ...unionNodes], edges }, offset, vertical };
 }
 
 // Flip a couple when each partner's parents sit on the other side, then lay out again.
@@ -359,16 +399,16 @@ function flipBlocks(blocks, pos, state) {
   return flipped ? out : null;
 }
 
-async function layoutTree(g, state) {
+async function layoutTree(g, state, cards) {
   elk ||= new window.ELK();
   let blocks = T.partnerBlocks(state, g.people);
   for (let pass = 0; ; pass++) {
-    const { graph, offset } = elkGraph(g, blocks);
+    const { graph, offset, vertical } = elkGraph(g, blocks, cards);
     const layout = await elk.layout(graph);
     const pos = new Map();
     for (const n of layout.children) {
       if (n.id.startsWith('b:')) {
-        blocks.find((m) => `b:${m[0]}` === n.id).forEach((id) => pos.set(id, { x: n.x + offset.get(id), y: n.y }));
+        blocks.find((m) => `b:${m[0]}` === n.id).forEach((id) => pos.set(id, { x: n.x + offset.get(id), y: n.y + vertical.get(id), ...cards.get(id) }));
       } else pos.set(n.id, { x: n.x, y: n.y });
     }
     const next = pass === 0 && flipBlocks(blocks, pos, state);
@@ -377,121 +417,110 @@ async function layoutTree(g, state) {
   }
 }
 
+function measureCards(people) {
+  const context = document.createElement('canvas').getContext('2d');
+  context.font = `600 15px ${getComputedStyle(document.body).fontFamily}`;
+  const measure = (text) => context.measureText(text).width;
+  return new Map(people.map((person) => [person.id, G.cardLayout(fullName(person.data) || 'Unknown', T.lifespan(person.data), Boolean(person.data.photo), measure)]));
+}
+
+function cardText(text, lines, x, y, step) {
+  text.attr('x', x).attr('y', y).selectAll('tspan').data(lines).join('tspan')
+    .attr('x', x).attr('dy', (_, i) => i ? step : 0).text((line) => line);
+}
+
 async function draw({ highlight = new Set(), duration = 450, fit = false } = {}) {
   const token = ++V.drawToken;
   // Dots for growing the tree only make sense when editing the live tree.
   V.el.stage.classList.toggle('can-grow', editor() && V.mode === 'live');
   const { state, visible } = shownState();
   const g = T.familyGraph(state, visible);
-  const { layout, pos, blocks } = await layoutTree(g, state);
+  const layoutGraph = V.mode === 'generations' ? T.familyGraph(state) : g;
+  let cached = V.mode === 'generations' && V.generationLayout?.state === state && V.generationLayout;
+  if (!cached) {
+    const cards = measureCards(layoutGraph.people);
+    cached = { state, cards, ...await layoutTree(layoutGraph, state, cards) };
+    if (V && token === V.drawToken && V.mode === 'generations') V.generationLayout = cached;
+  }
   if (!V || token !== V.drawToken) return;
+  const { cards, layout, pos } = cached;
+  const previous = V.renderedIds;
+  const incoming = previous ? g.people.filter((p) => !previous.has(p.id)) : [];
+  const relationships = T.relatives(state);
+  const focus = visible && !visible.has(V.selected) ? null : V.selected;
+  const distances = T.relationshipDistances(state, focus);
+  if (incoming.some((p) => G.nodeOpacity(distances.get(p.id), Boolean(focus))) &&
+      (V.mode !== 'generations' || (V.lastGenerationYear != null && V.year > V.lastGenerationYear))) popSound();
+  V.renderedIds = new Set(g.people.map((p) => p.id));
+  if (V.mode === 'generations') V.lastGenerationYear = V.year;
+  V.cards = cards;
+  V.pos = pos;
+  fill(V.el.find, h('option', { value: '' }, 'Find a person…'), g.people.map((p) => h('option', { value: p.id }, fullName(p.data) || 'Unknown')));
   const t = d3.transition().duration(reduceMotion ? 0 : duration).ease(d3.easeCubicInOut);
-  const parentsOf = T.relatives(state).parents;
-  const inBlock = new Map(blocks.flatMap((m, b) => m.map((id) => [id, b])));
-
-  // Partner lines join couples at mid-height; descent lines drop from the middle of that line
-  // (or from a lone parent) to each child. Each kind keeps one path shape so it tweens.
-  const edgeData = [], descents = [];
-  for (const u of g.unions) {
-    const P = u.parents.map((p) => pos.get(p));
-    const together = u.parents.every((p) => inBlock.get(p) === inBlock.get(u.parents[0]));
-    if (u.parents.length === 2 && together) {
-      const [l, r] = P[0].x < P[1].x ? P : [P[1], P[0]];
-      edgeData.push({ id: `m:${u.id}`, d: `M${l.x + NODE_W},${l.y + NODE_H / 2}H${r.x}` });
-    }
-    if (!u.children.length) continue;
-    let sx, sy;
-    if (together) {
-      sx = P.reduce((a, p) => a + p.x + NODE_W / 2, 0) / P.length;
-      sy = P[0].y + (P.length > 1 ? NODE_H / 2 : NODE_H);
-    } else {
-      const U = pos.get(u.id);
-      sx = U.x + UNION / 2; sy = U.y + UNION / 2;
-      u.parents.forEach((p) => {
-        const Q = pos.get(p), x = Q.x + NODE_W / 2, y = Q.y + NODE_H;
-        edgeData.push({ id: `${p}>${u.id}`, d: `M${x},${y}V${(y + sy) / 2}H${sx}V${sy}` });
-      });
-    }
-    descents.push({
-      u, sx, sy,
-      kids: u.children.map((c) => {
-        const C = pos.get(c);
-        const kinds = (parentsOf.get(c) || []).filter((r) => u.parents.includes(r.id)).map((r) => r.type);
-        return { c, x: C.x + NODE_W / 2, y: C.y, chosen: kinds.length > 0 && !kinds.includes('birth') };
-      }),
-    });
-  }
-  const tracks = siblingTracks(descents);
-  for (const dsc of descents) {
-    const lift = BAR_BASE + tracks.get(dsc) * BAR_STEP;
-    for (const k of dsc.kids) {
-      edgeData.push({ id: `${dsc.u.id}>${k.c}`, d: `M${dsc.sx},${dsc.sy}V${k.y - lift}H${k.x}V${k.y}`, chosen: k.chosen });
-    }
-  }
+  const visiblePos = new Map(g.people.map((p) => [p.id, pos.get(p.id)]));
+  const edgeData = G.connectionPaths(state, g, visiblePos);
   V.el.edges.selectAll('path').data(edgeData, (d) => d.id).join(
     (enter) => enter.append('path').attr('class', 'edge').attr('d', (d) => d.d).attr('opacity', 0).call((s) => s.transition(t).attr('opacity', 1)),
-    (update) => update.call((s) => s.transition(t).attr('d', (d) => d.d).attr('opacity', 1)),
-    (exit) => exit.call((s) => s.transition(t).attr('opacity', 0).remove()),
+    (update) => update.classed('exiting', false).call((s) => s.transition(t).attr('d', (d) => d.d).attr('opacity', 1)),
+    (exit) => exit.classed('exiting', true).call((s) => s.transition(t).style('opacity', 0).remove()),
   ).classed('chosen', (d) => !!d.chosen);
-
-  const junctions = g.unions.filter((u) => pos.has(u.id));
-  V.el.unions.selectAll('circle').data(junctions, (d) => d.id).join(
-    (enter) => enter.append('circle').attr('class', 'union').attr('r', 3.5)
-      .attr('cx', (d) => pos.get(d.id).x + UNION / 2).attr('cy', (d) => pos.get(d.id).y + UNION / 2)
-      .attr('opacity', 0).call((s) => s.transition(t).attr('opacity', 1)),
-    (update) => update.call((s) => s.transition(t).attr('cx', (d) => pos.get(d.id).x + UNION / 2).attr('cy', (d) => pos.get(d.id).y + UNION / 2)),
-    (exit) => exit.call((s) => s.transition(t).attr('opacity', 0).remove()),
-  );
 
   const at = (d) => `translate(${pos.get(d.id).x},${pos.get(d.id).y})`;
   V.el.people.selectAll('g.person').data(g.people, (d) => d.id).join(
     (enter) => enter.append('g').attr('class', 'person').attr('tabindex', 0).attr('role', 'button')
-      // Someone just created from a dot grows out of where it was dropped.
-      .attr('transform', (d) => (V.spawn?.id === d.id ? `translate(${V.spawn.x},${V.spawn.y})` : at(d))).attr('opacity', 0)
+      .attr('transform', (d) => {
+        const card = cards.get(d.id), relative = previous && G.arrivalOrigin(relationships, d.id, previous);
+        const origin = V.spawn?.id === d.id ? V.spawn : pos.get(relative);
+        return origin ? `translate(${origin.x + (origin.width || 0) / 2 - card.width * 0.15},${origin.y + (origin.height || 0) / 2 - card.height * 0.15}) scale(0.3)` : at(d);
+      })
       .on('click', (ev, d) => { ev.stopPropagation(); select(d.id); })
       .on('keydown', (ev, d) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); select(d.id); } })
       .call((s) => {
-        s.append('rect').attr('width', NODE_W).attr('height', NODE_H).attr('rx', 10);
-        s.append('image').attr('x', 9).attr('y', 9).attr('width', PHOTO).attr('height', PHOTO).attr('clip-path', 'url(#avatar)').attr('preserveAspectRatio', 'xMidYMid slice');
-        s.append('text').attr('class', 'name').attr('y', 25);
-        s.append('text').attr('class', 'years').attr('y', 43);
-        s.append('text').attr('class', 'lock').attr('x', NODE_W - 8).attr('y', NODE_H - 5).attr('text-anchor', 'end');
+        const body = s.append('g').attr('class', 'appearance').attr('opacity', 0);
+        body.append('rect').attr('rx', 10);
+        body.append('image').attr('x', 9).attr('width', PHOTO).attr('height', PHOTO).attr('clip-path', 'url(#avatar)').attr('preserveAspectRatio', 'xMidYMid slice');
+        body.append('text').attr('class', 'name').attr('y', 25);
+        body.append('text').attr('class', 'years').attr('y', 43);
+        body.append('text').attr('class', 'lock').attr('text-anchor', 'end');
         s.append('title');
-        const b = s.append('g').attr('class', 'badge').attr('aria-hidden', 'true').attr('transform', `translate(${NODE_W - 4},4)`);
+        const b = body.append('g').attr('class', 'badge').attr('aria-hidden', 'true');
         b.append('circle').attr('r', 11);
         b.append('text').attr('text-anchor', 'middle').attr('dy', 4);
-        for (const [side, x, y] of PORTS) {
-          const port = s.append('g').attr('class', `port ${side}`).attr('transform', `translate(${x},${y})`)
+        for (const side of PORTS) {
+          const port = body.append('g').attr('class', `port ${side}`)
             .on('click', (ev) => ev.stopPropagation()).call(portDrag(side));
           port.append('circle').attr('class', 'hit').attr('r', 16);
           port.append('circle').attr('class', 'dot').attr('r', 6);
           port.append('title').text(PORT_HELP[side]);
         }
+        body.transition(t).attr('opacity', 1);
       })
-      .call((s) => s.transition(t).attr('opacity', 1).attr('transform', at)),
-    (update) => update.call((s) => s.transition(t).attr('transform', at).attr('opacity', 1)),
-    (exit) => exit.call((s) => s.transition(t).attr('opacity', 0).remove()),
+      .call((s) => s.transition(t).attr('transform', at)),
+    (update) => update.classed('exiting', false).style('pointer-events', null).call((s) => { s.select('.appearance').transition(t).attr('opacity', 1); s.transition(t).attr('transform', at); }),
+    (exit) => exit.classed('exiting', true).attr('aria-hidden', 'true').attr('tabindex', -1).style('pointer-events', 'none')
+      .call((s) => { s.select('.appearance').transition(t).attr('opacity', 0); s.transition(t).remove(); }),
   ).each(function (d) {
-    const g = d3.select(this), photo = d.data.photo, x = photo ? 58 : 14;
-    g.classed('selected', d.id === V.selected);
+    const g = d3.select(this), photo = d.data.photo, card = cards.get(d.id);
     g.classed('editable', editor(d));
-    g.select('.lock').text(d.data.locked ? 'Locked' : '');
+    g.select('rect').attr('width', card.width).attr('height', card.height);
+    g.select('.lock').attr('x', card.width - 10).attr('y', card.height - 7).text(d.data.locked ? 'Locked' : '');
+    g.select('.badge').attr('transform', `translate(${card.width - 4},4)`);
+    for (const [side, x, y] of G.ports(card)) g.select(`.port.${side}`).attr('transform', `translate(${x},${y})`);
     setBadge(g, d);
-    g.select('image').attr('href', photo ? `/api/tree/media/${photo}` : null).attr('display', photo ? null : 'none');
-    const years = cardSubtitle(d.data);
-    g.select('.name').attr('x', x).attr('y', years ? 25 : NODE_H / 2 + 5).text(clip(nameOf(d), photo ? 17 : 21));
-    g.select('.years').attr('x', x).text(years);
+    g.select('image').attr('y', (card.height - PHOTO) / 2).attr('href', photo ? `/api/tree/media/${photo}` : null).attr('display', photo ? null : 'none');
+    cardText(g.select('.name'), card.nameLines, card.textX, card.nameY, 20);
+    cardText(g.select('.years'), card.subtitleLines, card.textX, card.subtitleY, 17);
     g.classed('lit', false);
     if (highlight.has(d.id)) {
       void this.getBoundingClientRect(); // restart the expose animation
       g.classed('lit', true);
     }
   });
-  colorPeople(state);
+  colorPeople(state, visible);
 
   V.spawn = null;
   renderEmpty(g.people.length);
-  if (fit || V.mode !== 'live' || !V.pos?.size) fitView(layout, duration);
+  if (fit || !V.fitted) { fitView(layout, duration, visible); V.fitted = true; }
   V.pos = pos;
 }
 
@@ -502,32 +531,10 @@ function ensureVisible(id) {
   const svg = V.el.svg.node(), { width, height } = svg.getBoundingClientRect();
   const tr = d3.zoomTransform(svg), [x, y] = tr.apply([p.x, p.y]);
   const margin = 24;
-  if (x >= margin && y >= margin && x + NODE_W * tr.k <= width - margin && y + NODE_H * tr.k <= height - margin) return;
-  const next = d3.zoomIdentity.translate(width / 2 - (p.x + NODE_W / 2) * tr.k, height / 2 - (p.y + NODE_H / 2) * tr.k).scale(tr.k);
+  if (x >= margin && y >= margin && tr.k >= 0.8 && x + p.width * tr.k <= width - margin && y + p.height * tr.k <= height - margin) return;
+  const k = Math.max(0.8, tr.k);
+  const next = d3.zoomIdentity.translate(width / 2 - (p.x + p.width / 2) * k, height / 2 - (p.y + p.height / 2) * k).scale(k);
   V.el.svg.transition().duration(reduceMotion ? 0 : 450).call(V.zoom.transform, next);
-}
-
-// Sibling bars of different families between the same two generations would sit on one line
-// and read as one family; give families whose bars overlap horizontally separate heights.
-function siblingTracks(descents) {
-  const tracks = new Map(), byLayer = new Map();
-  for (const d of descents) {
-    const xs = [d.sx, ...d.kids.map((k) => k.x)];
-    d.span = [Math.min(...xs), Math.max(...xs)];
-    const layer = Math.round(Math.min(...d.kids.map((k) => k.y)));
-    if (!byLayer.has(layer)) byLayer.set(layer, []);
-    byLayer.get(layer).push(d);
-  }
-  for (const group of byLayer.values()) {
-    const ends = []; // rightmost x used on each track
-    for (const d of group.sort((a, b) => a.span[0] - b.span[0])) {
-      let t = ends.findIndex((end) => end + BAR_GAP < d.span[0]);
-      if (t < 0 || t >= MAX_TRACKS) t = ends.length < MAX_TRACKS ? ends.length : ends.indexOf(Math.min(...ends));
-      ends[t] = Math.max(ends[t] ?? -Infinity, d.span[1]);
-      tracks.set(d, t);
-    }
-  }
-  return tracks;
 }
 
 function setBadge(g, d) {
@@ -563,7 +570,7 @@ function portDrag(side) {
     .on('start', function (ev, d) {
       closeQuickAdd();
       from = d.id;
-      const p = V.pos.get(d.id), [, px, py] = PORTS.find(([s]) => s === side);
+      const p = V.pos.get(d.id), [, px, py] = G.ports(V.cards.get(d.id)).find(([s]) => s === side);
       origin = [p.x + px, p.y + py];
       line = V.el.view.append('path').attr('class', 'drag-line').attr('d', path(...origin));
       target = null;
@@ -582,7 +589,7 @@ function portDrag(side) {
       const moved = Math.hypot(ev.x - origin[0], ev.y - origin[1]) > 8;
       if (target) { line.remove(); return linkPeople(from, PORT_DIR[side], target); }
       // A click (or a short drag) places the new card a step away in that direction.
-      const step = { top: [0, -120], bottom: [0, 120], left: [-NODE_W - 60, 0], right: [NODE_W + 60, 0] }[side];
+      const step = { top: [0, -120], bottom: [0, 120], left: [-V.cards.get(from).width - 60, 0], right: [V.cards.get(from).width + 60, 0] }[side];
       const at = moved ? [ev.x, ev.y] : [origin[0] + step[0], origin[1] + step[1]];
       line.attr('d', path(...at));
       openQuickAdd(from, PORT_DIR[side], at, line);
@@ -626,7 +633,7 @@ function openQuickAdd(from, dir, [x, y], line) {
       const id = crypto.randomUUID();
       let ops;
       try { ops = [{ id, kind: 'person', base_rev: 0, data }, ...T.relateOps(V.state, from, dir, id, () => crypto.randomUUID())]; } catch (e) { return toast(e.message, 'error'); }
-      V.spawn = { id, x: x - NODE_W / 2, y: y - NODE_H / 2 };
+      V.spawn = { id, x, y };
       closeQuickAdd();
       if (await commit(`Added ${T.displayName(data)} as ${RELATION_WORD[dir]} of ${T.displayName(subject)}`, ops)) select(id);
     },
@@ -640,12 +647,19 @@ function openQuickAdd(from, dir, [x, y], line) {
   first.focus();
 }
 
-function fitView(layout, duration) {
+function fitView(layout, duration, visible) {
   const { width, height } = V.el.svg.node().getBoundingClientRect();
   if (!width || !layout.width) return;
   const playerSpace = V.mode === 'live' ? 0 : 150;
   const pad = 40;
-  const k = Math.min(1.1, (width - pad * 2) / layout.width, (height - playerSpace - pad * 2) / layout.height);
+  const focus = (!visible || visible.has(V.selected)) && V.pos.get(V.selected);
+  if (focus) {
+    const k = Math.min(1, (width - pad * 2) / focus.width);
+    const next = d3.zoomIdentity.translate(width / 2 - (focus.x + focus.width / 2) * k, (height - playerSpace) / 2 - (focus.y + focus.height / 2) * k).scale(k);
+    V.el.svg.transition().duration(reduceMotion ? 0 : duration).call(V.zoom.transform, next);
+    return;
+  }
+  const k = Math.max(0.8, Math.min(1.1, (width - pad * 2) / layout.width, (height - playerSpace - pad * 2) / layout.height));
   const x = (width - layout.width * k) / 2, y = (height - playerSpace - layout.height * k) / 2;
   V.el.svg.transition().duration(reduceMotion ? 0 : duration).call(V.zoom.transform, d3.zoomIdentity.translate(x, y).scale(k));
 }
@@ -666,29 +680,40 @@ function select(id) {
   V.form = null;
   V.tab = id ? 'person' : 'chat';
   V.el.people.selectAll('g.person').classed('selected', (d) => d.id === id);
-  colorPeople(shownState().state);
+  const shown = shownState();
+  colorPeople(shown.state, shown.visible);
   if (id) ensureVisible(id);
   renderPanel();
 }
 
-function colorPeople(state) {
-  const focus = T.isLive(state.entities.get(V.selected)) ? V.selected
-    : [...state.entities.values()].find((e) => T.isLive(e) && e.kind === 'person')?.id;
+function colorPeople(state, visible) {
+  const focus = T.isLive(state.entities.get(V.selected)) && (!visible || visible.has(V.selected)) ? V.selected : null;
   const distances = T.relationshipDistances(state, focus);
+  const colors = G.branchColors(state);
+  const opacity = (id) => G.nodeOpacity(distances.get(id), Boolean(focus));
   const from = nameOf(state.entities.get(focus));
-  V.el.people.selectAll('g.person').each(function (d) {
+  V.el.people.selectAll('g.person:not(.exiting)').each(function (d) {
     const distance = distances.get(d.id);
-    const label = distance == null ? `No recorded path to ${from}` : `${distance} relationship links from ${from}`;
+    const label = focus ? (distance == null ? `No recorded path to ${from}` : `${distance} relationship links from ${from}`) : 'Select this person to focus the tree';
     const g = d3.select(this);
-    g.style('--relation-color', T.relationshipColor(distance));
-    g.attr('aria-label', `${nameOf(d)}. ${label}.${d.data.locked ? ' Locked.' : ''}`);
-    g.select('title').text(`${nameOf(d)}: ${label}${d.data.locked ? '. Locked' : ''}`);
+    g.classed('selected', d.id === focus).classed('distant', opacity(d.id) === 0)
+      .style('--relation-color', G.colorCss(colors.get(d.id))).style('opacity', opacity(d.id))
+      .attr('data-distance', distance).attr('tabindex', opacity(d.id) ? 0 : -1)
+      .attr('aria-hidden', opacity(d.id) ? null : 'true');
+    g.attr('aria-label', `${fullName(d.data) || 'Unknown'}. ${label}.${d.data.locked ? ' Locked.' : ''}`);
+    g.select('title').text(`${fullName(d.data) || 'Unknown'}: ${label}${d.data.locked ? '. Locked' : ''}`);
   });
+  V.el.edges.selectAll('path:not(.exiting)').classed('highlighted', (d) => d.a === focus || d.b === focus)
+    .classed('distant', (d) => Math.min(opacity(d.a), opacity(d.b)) === 0)
+    .style('opacity', (d) => Math.min(opacity(d.a), opacity(d.b)))
+    .style('--edge-color', (d) => G.colorCss([0, 1].map((axis) => ((colors.get(d.a) || [0, 0])[axis] + (colors.get(d.b) || [0, 0])[axis]) / 2)));
+  V.el.edges.selectAll('.highlighted').raise();
+  V.el.overview.disabled = !focus;
   fill(V.el.legend, focus && [
     h('strong', {}, `Links from ${from}`),
-    h('div', { class: 'relation-scale' }, [0, 1, 2, 3, 4, 5, 6].map((n) =>
-      h('span', { style: `background:${T.relationshipColor(n)}` }, n === 6 ? '6+' : n))),
-    h('span', {}, 'Parent, child or partner links. Gray: no recorded path.'),
+    h('div', { class: 'relation-scale' }, [0, 1, 2, 3, 4].map((n) =>
+      h('span', { style: `background:${G.colorCss(colors.get(focus))}` }, n))),
+    h('span', {}, 'Colors follow branches. More than 4 links away is hidden.'),
   ]);
   V.el.legend.hidden = !focus;
 }
@@ -720,6 +745,7 @@ async function setMode(mode) {
   closeQuickAdd();
   V.playing = false;
   V.mode = mode;
+  V.lastGenerationYear = null;
   V.el.modes.querySelectorAll('button').forEach((b, i) => b.setAttribute('aria-pressed', String(['live', 'replay', 'generations'][i] === mode)));
   if (mode === 'replay') {
     await loadLog();
