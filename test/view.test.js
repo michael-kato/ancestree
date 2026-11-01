@@ -104,20 +104,22 @@ test('children branch from one shared junction between parents', async () => {
   const rows=state(person('a'),person('b'),person('c'),parent('ac','a','c'),parent('bc','b','c','adoptive'),{id:'ab',kind:'partner',data:{a:'a',b:'b'},deleted:0});
   const pos=new Map([['a',{x:0,y:0,width:300,height:80}],['b',{x:328,y:0,width:200,height:80}],['c',{x:100,y:200,width:250,height:100}]]);
   const paths=V.connectionPaths(rows,familyGraph(rows),pos);
-  assert.equal(paths.length,4);
-  assert.equal(paths.find((p)=>p.id==='ab').d,'M300,40L328,40');
+  assert.equal(paths.length,5);
+  assert.equal(paths.find((p)=>p.id==='ab:0').d,'M300,40L314,40');
+  assert.equal(paths.find((p)=>p.id==='ab:1').d,'M314,40L328,40');
   const stem=paths.find((p)=>p.id==='u:a+b:stem');
   assert.match(stem.d,/^M314,40L314,/);
   assert.deepEqual(stem.refs.sort(),['ac','bc']);
   assert.equal(stem.mixed,true);
   const child=paths.find((p)=>p.id==='u:a+b:child:c');
-  assert.match(child.d,/L225,200$/);
+  assert.equal(child.d,'M232,186Q225,186 225,193L225,200');
+  assert.equal(paths.find((p)=>p.id==='u:a+b:bar:0').d,'M232,186L314,186');
   assert.deepEqual(child.refs.sort(),['ac','bc']);
   assert.equal(new Set(paths.map((p)=>p.d)).size,paths.length);
   const wide=new Map(pos);wide.set('b',{...pos.get('b'),x:800});
-  assert.match(V.connectionPaths(rows,familyGraph(rows),wide).find((p)=>p.id==='ab').d,/Q/);
+  assert.match(V.connectionPaths(rows,familyGraph(rows),wide).find((p)=>p.id==='ab:0').d,/Q/);
   const limited=new Map(pos);limited.delete('c');
-  assert.equal(V.connectionPaths(rows,{people:[],unions:[]},limited).length,1);
+  assert.equal(V.connectionPaths(rows,{people:[],unions:[]},limited).length,2);
   rows.entities.get('ab').deleted=1;
   assert.equal(V.connectionPaths(rows,{people:[],unions:[]},limited).length,0);
 });
@@ -127,11 +129,31 @@ test('unpartnered parents and siblings share one branch without duplicate paths'
   const rows=state(person('a'),person('b'),person('c'),person('d'),parent('ac','a','c'),parent('bc','b','c'),parent('ad','a','d'),parent('bd','b','d'));
   const pos=new Map([['a',{x:0,y:0,width:100,height:80}],['b',{x:200,y:0,width:100,height:80}],['c',{x:0,y:200,width:100,height:80}],['d',{x:200,y:200,width:100,height:80}]]);
   const paths=V.connectionPaths(rows,familyGraph(rows),pos);
-  assert.equal(paths.filter((p)=>p.id.endsWith(':parents')).length,1);
+  assert.equal(paths.filter((p)=>p.id.includes(':parents:')).length,2);
+  assert.equal(paths.find((p)=>p.id.endsWith(':parents:0')).d,'M50,100L150,100');
+  assert.equal(paths.find((p)=>p.id.endsWith(':parents:1')).d,'M150,100L250,100');
   assert.equal(paths.filter((p)=>p.id.endsWith(':stem')).length,1);
   assert.equal(paths.filter((p)=>p.id.includes(':child:')).length,2);
+  assert.equal(paths.find((p)=>p.id.endsWith(':bar:0')).d,'M57,186L150,186');
+  assert.equal(paths.find((p)=>p.id.endsWith(':bar:1')).d,'M150,186L243,186');
+  assert.equal(paths.find((p)=>p.id.endsWith(':child:c')).d,'M57,186Q50,186 50,193L50,200');
+  assert.equal(paths.find((p)=>p.id.endsWith(':child:d')).d,'M243,186Q250,186 250,193L250,200');
   assert.equal(new Set(paths.map((p)=>p.d)).size,paths.length);
   assert.deepEqual(paths.find((p)=>p.id.endsWith(':child:c')).refs.sort(),['ac','bc']);
+});
+
+test('a parent in multiple families has one shared outgoing line', async () => {
+  const {familyGraph}=await import('../public/tree.js');
+  const rows=state(person('a'),person('b'),person('c'),person('d'),parent('ac','a','c'),parent('ad','a','d'),parent('bd','b','d'));
+  const pos=new Map([['a',{x:0,y:0,width:100,height:80}],['b',{x:200,y:0,width:100,height:80}],['c',{x:0,y:200,width:100,height:80}],['d',{x:200,y:300,width:100,height:80}]]);
+  const paths=V.connectionPaths(rows,familyGraph(rows),pos);
+  const parentLines=paths.filter((p)=>p.d==='M50,80L50,100');
+  assert.equal(parentLines.length,1);
+  assert.deepEqual(parentLines[0].refs.sort(),['ac','ad']);
+  const closer=new Map(pos); closer.set('c',{...pos.get('c'),y:120});
+  const split=V.connectionPaths(rows,familyGraph(rows),closer);
+  assert.deepEqual(split.find((p)=>p.d==='M50,80L50,98').refs.sort(),['ac','ad']);
+  assert.deepEqual(split.find((p)=>p.d==='M50,98L50,100').refs,['ad']);
 });
 
 test('overlapping sibling bars get separate tracks within the four-track limit', () => {

@@ -14,7 +14,7 @@ sources:
   - test/database.js
   - test/relationship-benchmark.js
   - package.json
-checked: 548f05b
+checked: 3a12108
 ---
 
 Checks ran on 2026-10-31 with Node.js 24.14.1 and the installed Wrangler 4.151.3. The local Worker used separate storage at `/tmp/ancestree-shared-dev`. Live data was not changed.
@@ -30,6 +30,8 @@ The light-color and sibling update passed 27 tests. The local browser showed bla
 The shared-junction update passed 28 tests and a local timelapse check. Mutation testing reported 148 killed and 127 surviving mutations in the view module. Separate parent sets can still cross or overlap.
 
 The lifespan and overlay update passed 29 tests. A local browser check showed four unknown birth years as `????` and no relationship overlay. All three mutations on the changed lifespan lines were killed. Existing functions in the tree module still exceed the CRAP threshold.
+
+The junction alignment update passed 30 tests. Browser checks found rounded paths, no identical connection paths in the current tree, working sibling highlights, and no invalid paths in the timelapse. Mutation testing reported 199 killed and 125 surviving mutations in the view module. These checks do not establish that separate family groups never cross or overlap.
 
 ## Results
 
