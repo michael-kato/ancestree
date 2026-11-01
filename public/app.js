@@ -671,6 +671,7 @@ function select(id) {
 function colorPeople(state, visible) {
   const focus = T.isLive(state.entities.get(V.selected)) && (!visible || visible.has(V.selected)) ? V.selected : null;
   const distances = T.relationshipDistances(state, focus);
+  const siblings = G.siblingHighlights(state, focus);
   const colors = V.colorState?.pos === V.pos ? V.colorState.colors : new Map([...V.pos].filter(([, p]) => p.width).map(([id, p]) => [id, G.fieldColor(p.x + p.width / 2, p.y + p.height / 2)]));
   V.colorState = { pos: V.pos, colors };
   const filter = (id) => G.distanceFilter(distances.get(id), Boolean(focus));
@@ -679,23 +680,22 @@ function colorPeople(state, visible) {
     const distance = distances.get(d.id);
     const label = focus ? (distance == null ? `No recorded path to ${from}` : `${distance} relationship links from ${from}`) : 'Select this person to focus the tree';
     const g = d3.select(this);
-    const ink = G.cardInk(colors.get(d.id), G.distanceBrightness(distance, Boolean(focus)));
-    g.classed('selected', d.id === focus)
-      .style('--relation-color', G.colorCss(colors.get(d.id))).style('--card-ink', ink).style('--card-ink-soft', ink)
+    g.classed('selected', d.id === focus).classed('sibling', siblings.people.has(d.id))
+      .style('--relation-color', G.colorCss(colors.get(d.id)))
       .attr('data-distance', distance).attr('tabindex', 0).attr('aria-hidden', null);
-    g.select('rect').style('filter', filter(d.id));
+    g.select('rect').style('filter', siblings.people.has(d.id) ? 'none' : filter(d.id));
     g.attr('aria-label', `${fullName(d.data) || 'Unknown'}. ${label}.${d.data.locked ? ' Locked.' : ''}`);
     g.select('title').text(`${fullName(d.data) || 'Unknown'}: ${label}${d.data.locked ? '. Locked' : ''}`);
   });
-  V.el.edges.selectAll('path:not(.exiting)').classed('highlighted', (d) => d.a === focus || d.b === focus)
-    .style('filter', (d) => G.distanceFilter(Math.max(distances.get(d.a) ?? Infinity, distances.get(d.b) ?? Infinity), Boolean(focus)))
+  V.el.edges.selectAll('path:not(.exiting)').classed('highlighted', (d) => d.a === focus || d.b === focus || siblings.edges.has(d.id))
+    .style('filter', (d) => siblings.edges.has(d.id) ? 'none' : G.distanceFilter(Math.max(distances.get(d.a) ?? Infinity, distances.get(d.b) ?? Infinity), Boolean(focus)))
     .style('--edge-color', (d) => G.colorCss([0, 1, 2].map((axis) => ((colors.get(d.a) || [0.8, 0, 0])[axis] + (colors.get(d.b) || [0.8, 0, 0])[axis]) / 2)));
   V.el.edges.selectAll('.highlighted').raise();
   V.el.overview.disabled = !focus;
   fill(V.el.legend, focus && [
     h('strong', {}, `Links from ${from}`),
     h('div', { class: 'relation-scale' }, [0, 1, 2, 3, 4].map((n) =>
-      h('span', { style: `background:${G.colorCss(colors.get(focus))};color:${G.cardInk(colors.get(focus))}` }, n))),
+      h('span', { style: `background:${G.colorCss(colors.get(focus))};color:#000` }, n))),
     h('span', {}, 'Colors blend across the tree. Distant relatives are muted.'),
   ]);
   V.el.legend.hidden = !focus;

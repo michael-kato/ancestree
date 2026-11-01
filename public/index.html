@@ -21,8 +21,8 @@
   --paper-2: #2e4054;
   --ink: #ecf2fa;
   --ink-soft: #bbc8d8;
-  --card-ink: #172638;
-  --card-ink-soft: #304159;
+  --card-ink: #000;
+  --card-ink-soft: #000;
   --rule: #66798e;
   --danger: #ffb4a7;
   --focus: #ffe29b;
@@ -118,6 +118,7 @@ label.field { display: grid; gap: var(--s1); font-size: 14px; font-weight: 600; 
 .person:focus { outline: none; }
 .person:focus-visible rect { stroke: var(--focus); stroke-width: 3; }
 .person.selected rect { stroke: var(--sun); stroke-width: 3; }
+.person.sibling rect { stroke: var(--sun); stroke-width: 2.5; }
 .person.selected .name { fill: var(--card-ink); }
 .person.selected .years { fill: var(--card-ink-soft); }
 .person .lock { fill: var(--card-ink); font-size: 9px; font-weight: 700; }

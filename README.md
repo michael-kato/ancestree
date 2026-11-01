@@ -6,7 +6,7 @@ A node creator can lock or unlock that node. A lock protects the person's detail
 
 Select a person to highlight their connections. Card colors sample a continuous field of seeded colors across the tree layout. The field uses 1,000 vivid colors selected from [nice-color-palettes](https://github.com/Experience-Monks/nice-color-palettes), a collection based on ColourLovers palettes. Its [MIT license](licenses/nice-color-palettes.txt) applies to the copied palette data. Colors can change if the tree layout changes; the timelapse keeps one layout across years.
 
-Each parent, child, or partner link counts as one step. Distant cards and connections become less saturated and slightly darker. Adoptive, step, and foster links also count. These are graph distances, not genetic measurements. Select Clear selection to remove the emphasis, or use Find a person to select another person.
+Each parent, child, or partner link counts as one step. Distant cards and connections become less saturated and slightly darker. Siblings who share a recorded parent and their shared-parent connections are highlighted. Adoptive, step, and foster links also count. These are graph distances, not genetic measurements. Select Clear selection to remove the emphasis, or use Find a person to select another person.
 
 The timelapse keeps each person in the same position as the year changes. New cards grow from a visible relative when possible. A short sound marks new cards; use Sound on or Sound off to control it.
 

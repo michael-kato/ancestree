@@ -13,7 +13,7 @@ sources:
   - public/view.js
   - public/palette.js
   - migrations/0003_shared_tree.sql
-checked: 6266289
+checked: 46a96fc
 diagramLinks:
   Locks: node-locks
 ---
@@ -36,7 +36,7 @@ The Worker uses one internal tree record with ID `human`. The database retains `
 
 Edits read a sequence and the current entities. Validation checks node revisions, locks, relationship endpoints, and graph rules. The database batch writes only if the sequence is still current. If another write wins, the Worker reads the data again and repeats validation.
 
-Each card samples a continuous color field at its layout position. Fixed seeded cell centers use 1,000 colors from the palette file. Colors remain stable when the selection changes, but can change when the layout changes. Each parent, child, or partner link adds one step. Cards and connections become less saturated and slightly darker with distance; all remain visible. The viewer starts with the most connected person selected. Clear selection removes the distance emphasis. Labels give the distance in text. Selecting a person does not move the viewport.
+Each card samples a continuous color field at its layout position. Fixed seeded cell centers use 1,000 colors from the palette file. Colors are light enough for black card text. Colors remain stable when the selection changes, but can change when the layout changes. Each parent, child, or partner link adds one step. Cards and connections become less saturated and slightly darker with distance; all remain visible. Siblings who share a recorded parent and their connections to that parent are highlighted. The viewer starts with the most connected person selected. Clear selection removes the distance emphasis. Labels give the distance in text. Selecting a person does not move the viewport.
 
 Timelapse uses one layout for all years. Cards enter from a visible relative when possible, and a sound can mark arrivals. The viewport stays in place while the year changes.
 

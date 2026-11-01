@@ -11,7 +11,7 @@ sources:
   - store.js
   - worker.js
   - migrations/0003_shared_tree.sql
-checked: 6266289
+checked: 46a96fc
 ---
 
 A new person node records its creator and starts unlocked. A creator can lock it at creation or in a later edit. The server decides access from the stored creator ID and lock state. It does not trust creator IDs from an edit request.

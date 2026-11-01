@@ -11,6 +11,20 @@ export function arrivalOrigin(relationships, id, existing) {
   return null;
 }
 
+export function siblingHighlights(state, id) {
+  const { parents, children } = relatives(state);
+  const people = new Set(), edges = new Set();
+  for (const parent of parents.get(id) || []) {
+    for (const child of children.get(parent.id) || []) {
+      if (child.id !== id && isLive(state.entities.get(child.id))) {
+        people.add(child.id);
+        edges.add(child.edge);
+      }
+    }
+  }
+  return { people, edges };
+}
+
 export function wrapText(text, width, measure) {
   const lines = [];
   let line = '';
@@ -86,23 +100,12 @@ export function fieldColor(x, y) {
     for (let axis = 0; axis < 3; axis++) mixed[axis] += color[axis] * weight;
     total += weight;
   }
-  return mixed.map((v) => v / total);
+  const color = mixed.map((v) => v / total);
+  color[0] = Math.max(0.86, color[0]);
+  return color;
 }
 
 export const colorCss = ([l, a, b] = [0.8, 0, 0]) => `oklab(${l.toFixed(6)} ${a.toFixed(6)} ${b.toFixed(6)})`;
-
-export function colorLuminance([L, a, b], brightness = 1) {
-  const l = (L + 0.3963377774*a + 0.2158037573*b) ** 3;
-  const m = (L - 0.1055613458*a - 0.0638541728*b) ** 3;
-  const s = (L - 0.0894841775*a - 1.291485548*b) ** 3;
-  const rgb = [4.0767416621*l - 3.3077115913*m + 0.2309699292*s, -1.2684380046*l + 2.6097574011*m - 0.3413193965*s, -0.0041960863*l - 0.7034186147*m + 1.707614701*s].map((v) => Math.max(0, Math.min(1, v))).map((v) => {
-    const srgb = (v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055) * brightness;
-    return srgb <= 0.04045 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
-  });
-  return rgb[0]*0.2126 + rgb[1]*0.7152 + rgb[2]*0.0722;
-}
-
-export const cardInk = (color, brightness) => colorLuminance(color, brightness) >= 0.179 ? '#000' : '#fff';
 
 export function roundedPath(points, radius = 12) {
   const clean = points.filter((p, i) => !i || p[0] !== points[i - 1][0] || p[1] !== points[i - 1][1]);

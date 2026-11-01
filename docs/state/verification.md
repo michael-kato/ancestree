@@ -14,7 +14,7 @@ sources:
   - test/database.js
   - test/relationship-benchmark.js
   - package.json
-checked: 6266289
+checked: 46a96fc
 ---
 
 Checks ran on 2026-10-31 with Node.js 24.14.1 and the installed Wrangler 4.151.3. The local Worker used separate storage at `/tmp/ancestree-shared-dev`. Live data was not changed.
@@ -24,6 +24,8 @@ The viewer update also passed 26 tests, a Wrangler deployment dry run, a 0.8 dup
 The later color update passed 26 tests. A local browser check found all 61 cards visible, centered card names, and no viewport movement when another person was selected. The view module had 100% line coverage and each measured function scored below CRAP 10. Mutation testing reported 113 killed and 60 surviving mutations across the view module.
 
 The position-based color field passed 26 tests. A browser check found 61 distinct card colors that stayed fixed when a person was selected. The view module had 100% line coverage and each measured function scored below CRAP 10. Mutation testing reported 125 killed and 157 surviving mutations across the view module. Color contrast was calculated for field samples; browser rendering and display hardware can differ.
+
+The light-color and sibling update passed 27 tests. The local browser showed black card text and six highlighted siblings for a selected person. A calculation over 100,000 field positions found at least 6.1:1 contrast for black text after the maximum brightness reduction. Mutation testing reported 138 killed and 99 surviving mutations; all four selected sibling-highlight mutations were killed.
 
 ## Results
 

@@ -7,6 +7,14 @@ const measure = (text) => [...text].length * 8;
 const person = (id) => ({ id,kind:'person',data:{},deleted:0 });
 const parent = (id,a,b,type='birth') => ({ id,kind:'parent',data:{parent:a,child:b,type},deleted:0 });
 const state = (...rows) => fromRows(0,rows);
+function colorLuminance([L,a,b], brightness) {
+  const l=(L+0.3963377774*a+0.2158037573*b)**3, m=(L-0.1055613458*a-0.0638541728*b)**3, s=(L-0.0894841775*a-1.291485548*b)**3;
+  const rgb=[4.0767416621*l-3.3077115913*m+0.2309699292*s,-1.2684380046*l+2.6097574011*m-0.3413193965*s,-0.0041960863*l-0.7034186147*m+1.707614701*s].map(v=>Math.max(0,Math.min(1,v))).map(v=>{
+    const srgb=(v<=0.0031308?v*12.92:1.055*v**(1/2.4)-0.055)*brightness;
+    return srgb<=0.04045?srgb/12.92:((srgb+0.055)/1.055)**2.4;
+  });
+  return rgb[0]*0.2126+rgb[1]*0.7152+rgb[2]*0.0722;
+}
 
 test('new people appear from an already visible parent, partner, or child', () => {
   const graph=relatives(state(person('a'),person('b'),person('c'),person('d'),parent('ab','a','b'),parent('bc','b','c'),
@@ -71,15 +79,24 @@ test('rounded connections keep endpoints, handle repeated points, and limit corn
   assert.equal(V.roundedPath([[1,2]]),'M1,2');
 });
 
-test('color field chooses readable text for light and dark samples', () => {
+test('color field keeps black text readable on normal and muted cards', () => {
   for(let i=0;i<1000;i++){
     const color=V.fieldColor(i*97,i*37);
     for(const brightness of [1,V.distanceBrightness(4,true)]){
-      const luminance=V.colorLuminance(color,brightness);
-      const contrast=V.cardInk(color,brightness)==='#000'?(luminance+0.05)/0.05:1.05/(luminance+0.05);
-      assert.ok(contrast>=4.5);
+      const luminance=colorLuminance(color,brightness);
+      assert.ok((luminance+0.05)/0.05>=4.5);
     }
   }
+});
+
+test('sibling highlights include shared birth and adoptive parents only', () => {
+  const graph=state(person('p'),person('q'),person('a'),person('b'),person('c'),person('d'),
+    parent('pa','p','a'),parent('pb','p','b'),parent('qa','q','a','adoptive'),parent('qc','q','c','adoptive'),parent('pd','p','d'));
+  graph.entities.get('pd').deleted=1;
+  const result=V.siblingHighlights(graph,'a');
+  assert.deepEqual([...result.people].sort(),['b','c']);
+  assert.deepEqual([...result.edges].sort(),['pb','qc']);
+  assert.equal(V.siblingHighlights(graph,null).people.size,0);
 });
 
 test('connections retain each parent endpoint and its relationship type', async () => {
