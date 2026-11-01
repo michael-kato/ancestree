@@ -1,4 +1,5 @@
 import { isLive, relatives } from './tree.js';
+import { palette } from './palette.js';
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
@@ -42,8 +43,10 @@ export const ports = ({ width, height }) => [['top', width / 2, 0], ['bottom', w
 export function distanceFilter(distance, focused) {
   if (!focused || distance <= 1) return 'none';
   const amount = Math.min(1, ((distance ?? 4) - 1) / 3);
-  return `saturate(${(1 - amount * 0.55).toFixed(2)}) brightness(${(1 - amount * 0.15).toFixed(2)})`;
+  return `saturate(${(1 - amount * 0.55).toFixed(2)}) brightness(${distanceBrightness(distance, focused).toFixed(2)})`;
 }
+
+export const distanceBrightness = (distance, focused) => !focused || distance <= 1 ? 1 : 1 - Math.min(1, ((distance ?? 4) - 1) / 3) * 0.15;
 
 export function defaultFocus(state) {
   const { parents, children, partners } = relatives(state);
@@ -52,30 +55,54 @@ export function defaultFocus(state) {
   return people.sort((a, b) => degree(b.id) - degree(a.id) || a.id.localeCompare(b.id))[0]?.id ?? null;
 }
 
-function anchorColor(id) {
-  let hash = 2166136261;
-  for (const letter of id) hash = Math.imul(hash ^ letter.codePointAt(0), 16777619);
-  const angle = (hash >>> 0) / 4294967296 * Math.PI * 2;
-  return [Math.cos(angle) * 0.1, Math.sin(angle) * 0.1];
+function toOklab(hex) {
+  const [r,g,b] = hex.slice(1).match(/../g).map((n) => parseInt(n,16) / 255).map((c) => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const l = Math.cbrt(0.4122214708*r + 0.5363325363*g + 0.0514459929*b);
+  const m = Math.cbrt(0.2119034982*r + 0.6806995451*g + 0.1073969566*b);
+  const s = Math.cbrt(0.0883024619*r + 0.2817188376*g + 0.6299787005*b);
+  return [0.2104542553*l + 0.793617785*m - 0.0040720468*s, 1.9779984951*l - 2.428592205*m + 0.4505937099*s, 0.0259040371*l + 0.7827717662*m - 0.808675766*s];
 }
 
-export function branchColors(state) {
-  const { parents, children, partners } = relatives(state);
-  const ids = [...state.entities.values()].filter((e) => isLive(e) && e.kind === 'person').map((e) => e.id).sort();
-  const anchors = new Map(ids.map((id) => [id, anchorColor(id)]));
-  const neighbors = new Map(ids.map((id) => [id, [...new Set([...(parents.get(id) || []), ...(children.get(id) || []), ...(partners.get(id) || [])].map((r) => r.id))].filter((other) => anchors.has(other)).sort()]));
-  let colors = anchors;
-  for (let pass = 0; pass < 8; pass++) {
-    const previous = colors;
-    colors = new Map(ids.map((id) => {
-      const group = [id, ...neighbors.get(id)];
-      return [id, [0, 1].map((axis) => anchors.get(id)[axis] * 0.2 + 0.8 * group.reduce((sum, member) => sum + previous.get(member)[axis], 0) / group.length)];
-    }));
+const paletteLab = palette.map(toOklab);
+
+function cellHash(x, y, salt) {
+  let n = Math.imul(x ^ salt, 0x9e3779b1) ^ Math.imul(y, 0x85ebca6b);
+  n = Math.imul(n ^ (n >>> 16), 0x7feb352d);
+  n = Math.imul(n ^ (n >>> 15), 0x846ca68b);
+  return (n ^ (n >>> 16)) >>> 0;
+}
+
+export function fieldColor(x, y) {
+  const px = x / 1000, py = y / 650, gx = Math.floor(px), gy = Math.floor(py);
+  const mixed = [0, 0, 0];
+  let total = 0;
+  for (let i = gx - 2; i <= gx + 2; i++) for (let j = gy - 2; j <= gy + 2; j++) {
+    const ax = i + 0.2 + 0.6 * cellHash(i,j,1) / 4294967296;
+    const ay = j + 0.2 + 0.6 * cellHash(i,j,2) / 4294967296;
+    const distance = Math.hypot(px - ax, py - ay);
+    if (distance >= 2) continue;
+    const weight = (1 - distance / 2) ** 2 / (distance ** 2 + 0.0001);
+    const color = paletteLab[cellHash(i,j,3) % paletteLab.length];
+    for (let axis = 0; axis < 3; axis++) mixed[axis] += color[axis] * weight;
+    total += weight;
   }
-  return colors;
+  return mixed.map((v) => v / total);
 }
 
-export const colorCss = ([a, b] = [0, 0]) => `oklab(80% ${a.toFixed(6)} ${b.toFixed(6)})`;
+export const colorCss = ([l, a, b] = [0.8, 0, 0]) => `oklab(${l.toFixed(6)} ${a.toFixed(6)} ${b.toFixed(6)})`;
+
+export function colorLuminance([L, a, b], brightness = 1) {
+  const l = (L + 0.3963377774*a + 0.2158037573*b) ** 3;
+  const m = (L - 0.1055613458*a - 0.0638541728*b) ** 3;
+  const s = (L - 0.0894841775*a - 1.291485548*b) ** 3;
+  const rgb = [4.0767416621*l - 3.3077115913*m + 0.2309699292*s, -1.2684380046*l + 2.6097574011*m - 0.3413193965*s, -0.0041960863*l - 0.7034186147*m + 1.707614701*s].map((v) => Math.max(0, Math.min(1, v))).map((v) => {
+    const srgb = (v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055) * brightness;
+    return srgb <= 0.04045 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
+  });
+  return rgb[0]*0.2126 + rgb[1]*0.7152 + rgb[2]*0.0722;
+}
+
+export const cardInk = (color, brightness) => colorLuminance(color, brightness) >= 0.179 ? '#000' : '#fff';
 
 export function roundedPath(points, radius = 12) {
   const clean = points.filter((p, i) => !i || p[0] !== points[i - 1][0] || p[1] !== points[i - 1][1]);

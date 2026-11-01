@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as V from '../public/view.js';
+import { palette } from '../public/palette.js';
 import { fromRows, relatives } from '../public/tree.js';
 const measure = (text) => [...text].length * 8;
 const person = (id) => ({ id,kind:'person',data:{},deleted:0 });
@@ -51,19 +52,16 @@ test('default focus uses the most connected person with a stable tie order', () 
   assert.equal(V.defaultFocus(state()),null);
 });
 
-test('branch colors form a stable gradient through family links', () => {
-  const graph=state(person('a'),person('b'),person('child'),parent('ac','a','child'),parent('bc','b','child','adoptive'));
-  const colors=V.branchColors(graph), reverse=V.branchColors(state(...[...graph.entities.values()].reverse()));
-  for(const [id,color] of colors)assert.deepEqual(reverse.get(id),color);
-  assert.notDeepEqual(colors.get('child'),colors.get('a'));
-  const chain=V.branchColors(state(person('a'),person('b'),parent('ab','a','b')));
-  assert.notDeepEqual(chain.get('a'),chain.get('b'));
-  assert.ok(Math.hypot(...chain.get('a').map((v,i)=>v-chain.get('b')[i]))<0.05);
-  assert.match(V.colorCss(colors.get('child')),/^oklab\(80% /);
-  const many=V.branchColors(state(...Array.from({length:1000},(_,i)=>person(`person-${i}`))));
-  assert.equal(new Set([...many.values()].map(V.colorCss)).size,1000);
-  assert.ok(new Set([...many.values()].map(([a,b])=>Math.floor((Math.atan2(b,a)+Math.PI)*12/(Math.PI*2)))).size>=10);
-  assert.equal(V.branchColors(state()).size,0);
+test('color field blends nearby positions and uses 1000 source colors', () => {
+  assert.equal(palette.length,1000);
+  assert.equal(new Set(palette).size,1000);
+  const first=V.fieldColor(100,100), nearby=V.fieldColor(101,100), far=V.fieldColor(5000,4000);
+  assert.deepEqual(first,V.fieldColor(100,100));
+  assert.notDeepEqual(first,far);
+  assert.ok(Math.hypot(...first.map((v,i)=>v-nearby[i]))<0.01);
+  const left=V.fieldColor(999.99,650), right=V.fieldColor(1000.01,650);
+  assert.ok(Math.hypot(...left.map((v,i)=>v-right[i]))<0.001);
+  assert.match(V.colorCss(first),/^oklab\(/);
 });
 
 test('rounded connections keep endpoints, handle repeated points, and limit corner radius', () => {
@@ -73,17 +71,14 @@ test('rounded connections keep endpoints, handle repeated points, and limit corn
   assert.equal(V.roundedPath([[1,2]]),'M1,2');
 });
 
-test('branch colors keep dark card text above 4.5 contrast across 1000 anchors', () => {
-  const colors=V.branchColors(state(...Array.from({length:1000},(_,i)=>person(`root-${i}`))));
-  const ink=[23,38,56].map((n)=>n/255).map((n)=>n<=0.04045?n/12.92:((n+0.055)/1.055)**2.4);
-  const inkY=ink[0]*0.2126+ink[1]*0.7152+ink[2]*0.0722;
-  for(const [a,b] of colors.values()){
-    const l=(0.8+0.3963377774*a+0.2158037573*b)**3;
-    const m=(0.8-0.1055613458*a-0.0638541728*b)**3;
-    const s=(0.8-0.0894841775*a-1.291485548*b)**3;
-    const rgb=[4.0767416621*l-3.3077115913*m+0.2309699292*s,-1.2684380046*l+2.6097574011*m-0.3413193965*s,-0.0041960863*l-0.7034186147*m+1.707614701*s].map((v)=>Math.max(0,Math.min(1,v)));
-    const y=rgb[0]*0.2126+rgb[1]*0.7152+rgb[2]*0.0722;
-    assert.ok((y+0.05)/(inkY+0.05)>=4.5);
+test('color field chooses readable text for light and dark samples', () => {
+  for(let i=0;i<1000;i++){
+    const color=V.fieldColor(i*97,i*37);
+    for(const brightness of [1,V.distanceBrightness(4,true)]){
+      const luminance=V.colorLuminance(color,brightness);
+      const contrast=V.cardInk(color,brightness)==='#000'?(luminance+0.05)/0.05:1.05/(luminance+0.05);
+      assert.ok(contrast>=4.5);
+    }
   }
 });
 
