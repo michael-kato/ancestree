@@ -95,12 +95,12 @@ label.field { display: grid; gap: var(--s1); font-size: 14px; font-weight: 600; 
 /* Tree workspace */
 .app { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 400px; grid-template-rows: auto minmax(0, 1fr); }
 .bar { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--s4); padding: var(--s2) var(--s4); border-bottom: 1px solid var(--rule); background: var(--paper); min-height: 56px; }
-.bar .home { font-weight: 700; text-decoration: none; letter-spacing: -.02em; font-size: 18px; }
+.bar .home { font-weight: 600; text-decoration: none; font-size: 18px; }
 .bar .tree-title { font-size: 18px; font-weight: 400; color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bar .spacer { flex: 1; }
 .person-picker { width: 180px; min-height: 32px; padding: 4px 8px; border: 1.5px solid var(--rule); border-radius: 8px; background: var(--paper); color: var(--ink); font-size: 14px; }
-.modes { display: inline-flex; border: 1.5px solid var(--rule); border-radius: 999px; padding: 2px; }
-.modes button { border: 0; background: none; padding: 6px 14px; border-radius: 999px; cursor: pointer; font-weight: 600; color: var(--ink-soft); }
+.modes { display: inline-flex; border: 1.5px solid var(--rule); border-radius: 8px; padding: 2px; }
+.modes button { border: 0; background: none; padding: 6px 12px; border-radius: 5px; cursor: pointer; font-weight: 600; color: var(--ink-soft); }
 .modes button[aria-pressed="true"] { background: var(--prussian); color: var(--print); }
 
 .stage { position: relative; overflow: hidden; }
@@ -123,9 +123,9 @@ label.field { display: grid; gap: var(--s1); font-size: 14px; font-weight: 600; 
 .person.selected .name { fill: var(--card-ink); }
 .person.selected .years { fill: var(--card-ink-soft); }
 .person .lock { fill: var(--card-ink); font-size: 9px; font-weight: 700; }
-.relation-legend { position: absolute; top: 12px; left: 12px; max-width: min(340px, calc(100% - 24px)); padding: 10px 12px; border-radius: 10px; background: var(--paper); color: var(--ink); font-size: 12px; display: grid; gap: 5px; pointer-events: none; }
+.relation-legend { position: absolute; top: 12px; left: 12px; max-width: min(340px, calc(100% - 24px)); padding: 8px 12px; border-radius: 8px; background: var(--paper); color: var(--ink); font-size: 12px; display: grid; gap: 4px; pointer-events: none; }
 .relation-scale { display: flex; gap: 2px; color: var(--card-ink); }
-.relation-scale span { text-align: center; min-width: 30px; padding: 2px 5px; }
+.relation-scale span { text-align: center; min-width: 28px; padding: 2px 4px; }
 .person.lit rect { animation: expose 1.6s ease-out; }
 @keyframes expose {
   0% { fill: var(--sun); stroke: var(--sun); }
@@ -177,12 +177,14 @@ label.field { display: grid; gap: var(--s1); font-size: 14px; font-weight: 600; 
 .panel-body { overflow-y: auto; padding: var(--s5) var(--s4); display: grid; gap: var(--s5); align-content: start; }
 .portrait { width: 112px; height: 112px; border-radius: 50%; object-fit: cover; border: 3px solid var(--paper-2); }
 .person-head { display: grid; gap: var(--s2); }
-.person-head h2 { font-size: 26px; letter-spacing: -.01em; }
+.person-head h2 { font-size: 26px; font-weight: 600; }
 .facts { display: grid; gap: var(--s1); }
 .notes { white-space: pre-wrap; }
 .section { display: grid; gap: var(--s3); }
 .section h3 { font-size: 16px; }
 .kin { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--s1); }
+.kin li { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s3); }
+.kin .link { text-align: left; overflow-wrap: anywhere; }
 .kin .rel { color: var(--ink-soft); font-size: 14px; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--s2); }
 
