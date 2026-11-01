@@ -459,7 +459,7 @@ async function draw({ highlight = new Set(), duration = 450, fit = false } = {})
     (enter) => enter.append('path').attr('class', 'edge').attr('d', (d) => d.d).attr('opacity', 0).call((s) => s.transition(t).attr('opacity', 1)),
     (update) => update.classed('exiting', false).call((s) => s.transition(t).attr('d', (d) => d.d).attr('opacity', 1)),
     (exit) => exit.classed('exiting', true).call((s) => s.transition(t).style('opacity', 0).remove()),
-  ).classed('chosen', (d) => !!d.chosen);
+  ).classed('chosen', (d) => !!d.chosen).classed('mixed', (d) => !!d.mixed);
 
   const at = (d) => `translate(${pos.get(d.id).x},${pos.get(d.id).y})`;
   V.el.people.selectAll('g.person').data(g.people, (d) => d.id).join(
@@ -687,8 +687,9 @@ function colorPeople(state, visible) {
     g.attr('aria-label', `${fullName(d.data) || 'Unknown'}. ${label}.${d.data.locked ? ' Locked.' : ''}`);
     g.select('title').text(`${fullName(d.data) || 'Unknown'}: ${label}${d.data.locked ? '. Locked' : ''}`);
   });
-  V.el.edges.selectAll('path:not(.exiting)').classed('highlighted', (d) => d.a === focus || d.b === focus || siblings.edges.has(d.id))
-    .style('filter', (d) => siblings.edges.has(d.id) ? 'none' : G.distanceFilter(Math.max(distances.get(d.a) ?? Infinity, distances.get(d.b) ?? Infinity), Boolean(focus)))
+  const highlighted = (d) => d.people.includes(focus) || d.refs.some((id) => siblings.edges.has(id));
+  V.el.edges.selectAll('path:not(.exiting)').classed('highlighted', highlighted)
+    .style('filter', (d) => highlighted(d) ? 'none' : G.distanceFilter(Math.max(distances.get(d.a) ?? Infinity, distances.get(d.b) ?? Infinity), Boolean(focus)))
     .style('--edge-color', (d) => G.colorCss([0, 1, 2].map((axis) => ((colors.get(d.a) || [0.8, 0, 0])[axis] + (colors.get(d.b) || [0.8, 0, 0])[axis]) / 2)));
   V.el.edges.selectAll('.highlighted').raise();
   V.el.overview.disabled = !focus;
@@ -697,6 +698,7 @@ function colorPeople(state, visible) {
     h('div', { class: 'relation-scale' }, [0, 1, 2, 3, 4].map((n) =>
       h('span', { style: `background:${G.colorCss(colors.get(focus))};color:#000` }, n))),
     h('span', {}, 'Colors blend across the tree. Distant relatives are muted.'),
+    h('span', {}, 'Dashed lines include adoptive, step or foster links.'),
   ]);
   V.el.legend.hidden = !focus;
 }

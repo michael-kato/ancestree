@@ -13,7 +13,7 @@ sources:
   - public/view.js
   - public/palette.js
   - migrations/0003_shared_tree.sql
-checked: 46a96fc
+checked: 7ef6d26
 diagramLinks:
   Locks: node-locks
 ---
@@ -40,8 +40,10 @@ Each card samples a continuous color field at its layout position. Fixed seeded 
 
 Timelapse uses one layout for all years. Cards enter from a visible relative when possible, and a sound can mark arrivals. The viewport stays in place while the year changes.
 
+Children with the same visible parent set share a branch and junction. A recorded partner connection supplies its midpoint as the start of the branch. Shared segments retain their underlying relationship IDs for selection. A mixed dash pattern marks segments that represent both birth and non-birth links.
+
 See [node locks](node-locks.md), [migration and limits](../../README.md), and [verification results](verification.md).
 
 ## Gaps
 
-The viewer and validator load the full graph. Population-scale loading, rendering, and concurrent writes need a separate design and load tests. Browser checks do not contribute to Node coverage.
+The viewer and validator load the full graph. Population-scale loading, rendering, and concurrent writes need a separate design and load tests. Browser checks do not contribute to Node coverage. Separate parent sets and complex partnerships can still produce crossings or overlaps.

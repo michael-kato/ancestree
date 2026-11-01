@@ -8,6 +8,8 @@ Select a person to highlight their connections. Card colors sample a continuous 
 
 Each parent, child, or partner link counts as one step. Distant cards and connections become less saturated and slightly darker. Siblings who share a recorded parent and their shared-parent connections are highlighted. Adoptive, step, and foster links also count. These are graph distances, not genetic measurements. Select Clear selection to remove the emphasis, or use Find a person to select another person.
 
+Children of the same recorded parents share a junction and branch line. Where parents have a recorded partnership, the branch starts at the midpoint of their connection. Dashed lines include non-birth parent links. A mixed pattern marks a shared segment that includes both birth and non-birth links; individual relationships remain in each person's details.
+
 The timelapse keeps each person in the same position as the year changes. New cards grow from a visible relative when possible. A short sound marks new cards; use Sound on or Sound off to control it.
 
 ## Run locally

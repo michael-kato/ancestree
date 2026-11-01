@@ -151,6 +151,7 @@ label.field { display: grid; gap: var(--s1); font-size: 14px; font-weight: 600; 
 .edge { fill: none; stroke: color-mix(in oklab, var(--edge-color) 55%, var(--print)); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; transition: opacity .18s; pointer-events: none; }
 .edge.highlighted { stroke: var(--sun); stroke-width: 3; }
 .edge.chosen { stroke-dasharray: 5 4; }
+.edge.mixed { stroke-dasharray: 8 3 2 3; }
 
 /* Replay / generations player sits on the print like an exposure strip. */
 .player { position: absolute; left: var(--s4); right: var(--s4); bottom: var(--s4); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--s3) var(--s4); padding: var(--s3) var(--s4); border-radius: 14px; background: var(--paper); color: var(--ink); }

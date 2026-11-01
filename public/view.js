@@ -145,28 +145,58 @@ export function siblingTracks(descents) {
 
 export function connectionPaths(state, graph, pos) {
   const center = (p) => p.x + p.width / 2;
+  const links = [...state.entities.values()].filter((e) => isLive(e) && e.kind !== 'person');
+  const pairs = new Map(links.filter((e) => e.kind === 'partner').map((e) => [[e.data.a, e.data.b].sort().join('\0'), e]));
+  const parents = new Map(links.filter((e) => e.kind === 'parent').map((e) => [`${e.data.parent}\0${e.data.child}`, e]));
+  const paths = links.filter((e) => e.kind === 'partner' && pos.has(e.data.a) && pos.has(e.data.b)).map((e) => ({
+    id: e.id, a: e.data.a, b: e.data.b, people: [e.data.a, e.data.b], refs: [e.id], d: roundedPath(partnerPoints(pos.get(e.data.a), pos.get(e.data.b))),
+  }));
   const descents = graph.unions.filter((u) => u.children.length).map((u) => ({
-    sx: u.parents.reduce((sum, id) => sum + center(pos.get(id)), 0) / u.parents.length,
+    union: u, sx: u.parents.reduce((sum, id) => sum + center(pos.get(id)), 0) / u.parents.length,
     kids: u.children.map((c) => ({ c, x: center(pos.get(c)), y: pos.get(c).y })),
   }));
   const tracks = siblingTracks(descents);
-  const lift = new Map(descents.flatMap((d) => d.kids.map((k) => [k.c, 14 + tracks.get(d) * 9])));
-  const paths = [];
-  for (const edge of state.entities.values()) {
-    if (!isLive(edge) || edge.kind === 'person') continue;
-    const [a, b] = edge.kind === 'parent' ? [edge.data.parent, edge.data.child] : [edge.data.a, edge.data.b];
-    if (!pos.has(a) || !pos.has(b)) continue;
-    const A = pos.get(a), B = pos.get(b);
-    let points;
-    if (edge.kind === 'parent') {
-      const y = B.y - lift.get(b);
-      points = [[center(A), A.y + A.height], [center(A), y], [center(B), y], [center(B), B.y]];
-    } else {
-      points = partnerPoints(A, B);
-    }
-    paths.push({ id: edge.id, a, b, d: roundedPath(points), chosen: edge.kind === 'parent' && edge.data.type !== 'birth' });
-  }
+  for (const descent of descents) paths.push(...unionPaths(descent, tracks.get(descent), pos, pairs, parents));
   return paths;
+}
+
+function unionPaths({ union, kids }, track, pos, pairs, parents) {
+  const center = (p) => p.x + p.width / 2;
+  const refs = union.parents.flatMap((p) => union.children.map((c) => parents.get(`${p}\0${c}`))).filter(Boolean);
+  const trackY = Math.min(...kids.map((k) => k.y)) - 14 - track * 9;
+  const { partner, sx, joinY } = unionJunction(union, pos, pairs, trackY);
+  const paths = [];
+  const add = (id, vertices, records, participants) => paths.push(unionSegment(union, id, vertices, records, participants));
+  if (!partner) {
+    for (const p of union.parents) {
+      const card = pos.get(p);
+      add(`parent:${p}`, [[center(card), card.y + card.height], [center(card), joinY]], refs.filter((e) => e.data.parent === p));
+    }
+    if (union.parents.length > 1) {
+      const xs = union.parents.map((p) => center(pos.get(p)));
+      add('parents', [[Math.min(...xs), joinY], [Math.max(...xs), joinY]], refs);
+    }
+  }
+  add('stem', [[sx, joinY], [sx, trackY]], refs);
+  const xs = [sx, ...kids.map((k) => k.x)];
+  if (Math.min(...xs) !== Math.max(...xs)) add('bar', [[Math.min(...xs), trackY], [Math.max(...xs), trackY]], refs);
+  for (const k of kids) add(`child:${k.c}`, [[k.x, trackY], [k.x, k.y]], refs.filter((e) => e.data.child === k.c), [...union.parents, k.c]);
+  return paths;
+}
+
+function unionJunction(union, pos, pairs, trackY) {
+  const partner = union.parents.length === 2 && pairs.get(union.parents.join('\0'));
+  const points = partner && partnerPoints(pos.get(partner.data.a), pos.get(partner.data.b));
+  const mid = points && points.length === 2 ? [0, 1].map((axis) => (points[0][axis] + points[1][axis]) / 2)
+    : points && [0, 1].map((axis) => (points[1][axis] + points[2][axis]) / 2);
+  const sx = mid ? mid[0] : union.parents.reduce((sum, p) => sum + pos.get(p).x + pos.get(p).width / 2, 0) / union.parents.length;
+  const joinY = mid ? mid[1] : Math.min(trackY - 8, Math.max(...union.parents.map((p) => pos.get(p).y + pos.get(p).height)) + 20);
+  return { partner, sx, joinY };
+}
+
+function unionSegment(union, id, vertices, records, participants = [...union.parents, ...union.children]) {
+  const chosen = records.some((e) => e.data.type !== 'birth');
+  return { id: `${union.id}:${id}`, a: union.parents[0], b: union.children[0], people: participants, refs: records.map((e) => e.id), chosen: chosen && records.every((e) => e.data.type !== 'birth'), mixed: chosen && records.some((e) => e.data.type === 'birth'), d: roundedPath(vertices) };
 }
 
 function partnerPoints(A, B) {

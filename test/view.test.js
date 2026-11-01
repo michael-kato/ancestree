@@ -99,24 +99,39 @@ test('sibling highlights include shared birth and adoptive parents only', () => 
   assert.equal(V.siblingHighlights(graph,null).people.size,0);
 });
 
-test('connections retain each parent endpoint and its relationship type', async () => {
+test('children branch from one shared junction between parents', async () => {
   const {familyGraph}=await import('../public/tree.js');
   const rows=state(person('a'),person('b'),person('c'),parent('ac','a','c'),parent('bc','b','c','adoptive'),{id:'ab',kind:'partner',data:{a:'a',b:'b'},deleted:0});
   const pos=new Map([['a',{x:0,y:0,width:300,height:80}],['b',{x:328,y:0,width:200,height:80}],['c',{x:100,y:200,width:250,height:100}]]);
   const paths=V.connectionPaths(rows,familyGraph(rows),pos);
-  assert.equal(paths.length,3);
-  assert.deepEqual(paths.find((p)=>p.id==='ac').a,'a');
-  assert.deepEqual(paths.find((p)=>p.id==='ac').b,'c');
-  assert.equal(paths.find((p)=>p.id==='ac').chosen,false);
-  assert.equal(paths.find((p)=>p.id==='bc').chosen,true);
-  assert.match(paths.find((p)=>p.id==='ac').d,/^M150,80.*Q.*L225,200$/);
+  assert.equal(paths.length,4);
   assert.equal(paths.find((p)=>p.id==='ab').d,'M300,40L328,40');
+  const stem=paths.find((p)=>p.id==='u:a+b:stem');
+  assert.match(stem.d,/^M314,40L314,/);
+  assert.deepEqual(stem.refs.sort(),['ac','bc']);
+  assert.equal(stem.mixed,true);
+  const child=paths.find((p)=>p.id==='u:a+b:child:c');
+  assert.match(child.d,/L225,200$/);
+  assert.deepEqual(child.refs.sort(),['ac','bc']);
+  assert.equal(new Set(paths.map((p)=>p.d)).size,paths.length);
   const wide=new Map(pos);wide.set('b',{...pos.get('b'),x:800});
   assert.match(V.connectionPaths(rows,familyGraph(rows),wide).find((p)=>p.id==='ab').d,/Q/);
   const limited=new Map(pos);limited.delete('c');
   assert.equal(V.connectionPaths(rows,{people:[],unions:[]},limited).length,1);
   rows.entities.get('ab').deleted=1;
   assert.equal(V.connectionPaths(rows,{people:[],unions:[]},limited).length,0);
+});
+
+test('unpartnered parents and siblings share one branch without duplicate paths', async () => {
+  const {familyGraph}=await import('../public/tree.js');
+  const rows=state(person('a'),person('b'),person('c'),person('d'),parent('ac','a','c'),parent('bc','b','c'),parent('ad','a','d'),parent('bd','b','d'));
+  const pos=new Map([['a',{x:0,y:0,width:100,height:80}],['b',{x:200,y:0,width:100,height:80}],['c',{x:0,y:200,width:100,height:80}],['d',{x:200,y:200,width:100,height:80}]]);
+  const paths=V.connectionPaths(rows,familyGraph(rows),pos);
+  assert.equal(paths.filter((p)=>p.id.endsWith(':parents')).length,1);
+  assert.equal(paths.filter((p)=>p.id.endsWith(':stem')).length,1);
+  assert.equal(paths.filter((p)=>p.id.includes(':child:')).length,2);
+  assert.equal(new Set(paths.map((p)=>p.d)).size,paths.length);
+  assert.deepEqual(paths.find((p)=>p.id.endsWith(':child:c')).refs.sort(),['ac','bc']);
 });
 
 test('overlapping sibling bars get separate tracks within the four-track limit', () => {
