@@ -389,7 +389,5 @@ export function legalName(d) {
 // Only for people who have died; the living are left undated on the tree.
 export function lifespan(d) {
   const b = year(d?.birth), x = year(d?.death);
-  if (b && x) return `${b}–${x}`;
-  if (x) return `Died ${x}`;
-  return '';
+  return x ? `${b || '????'}–${x}` : '';
 }

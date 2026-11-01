@@ -266,14 +266,13 @@ function buildWorkspace() {
   V.el.player = h('div', { class: 'player', hidden: true });
   V.el.find = h('select', { class: 'person-picker', 'aria-label': 'Find a person', onchange: (ev) => { if (ev.target.value) select(ev.target.value); ev.target.value = ''; } });
   V.el.overview = h('button', { class: 'btn quiet small', onclick: () => select(null) }, 'Clear selection');
-  V.el.legend = h('div', { class: 'relation-legend', 'aria-live': 'polite' });
   V.el.sound = h('button', { class: 'btn quiet small', 'aria-pressed': 'true', onclick: () => {
     V.sound = !V.sound;
     V.el.sound.textContent = V.sound ? 'Sound on' : 'Sound off';
     V.el.sound.setAttribute('aria-pressed', String(V.sound));
     if (V.sound) enableAudio();
   } }, 'Sound on');
-  V.el.stage = h('main', { class: 'stage ground' }, V.el.svg.node(), V.el.empty, V.el.player, V.el.legend);
+  V.el.stage = h('main', { class: 'stage ground' }, V.el.svg.node(), V.el.empty, V.el.player);
   V.el.tabs = h('nav', { class: 'tabs', role: 'tablist' });
   V.el.body = h('div', { class: 'panel-body' });
   root.replaceChildren(h('div', { class: 'app' },
@@ -693,14 +692,6 @@ function colorPeople(state, visible) {
     .style('--edge-color', (d) => G.colorCss([0, 1, 2].map((axis) => ((colors.get(d.a) || [0.8, 0, 0])[axis] + (colors.get(d.b) || [0.8, 0, 0])[axis]) / 2)));
   V.el.edges.selectAll('.highlighted').raise();
   V.el.overview.disabled = !focus;
-  fill(V.el.legend, focus && [
-    h('strong', {}, `Links from ${from}`),
-    h('div', { class: 'relation-scale' }, [0, 1, 2, 3, 4].map((n) =>
-      h('span', { style: `background:${G.colorCss(colors.get(focus))};color:#000` }, n))),
-    h('span', {}, 'Colors blend across the tree. Distant relatives are muted.'),
-    h('span', {}, 'Dashed lines include adoptive, step or foster links.'),
-  ]);
-  V.el.legend.hidden = !focus;
 }
 
 async function toggleLock(person) {

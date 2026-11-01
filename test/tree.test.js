@@ -2,6 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as T from '../public/tree.js';
 
+test('lifespan shows an unknown birth year when only death is known', () => {
+  assert.equal(T.lifespan({death:'1887'}),'????–1887');
+  assert.equal(T.lifespan({birth:'1820',death:'1887'}),'1820–1887');
+  assert.equal(T.lifespan({birth:'1820'}),'');
+  assert.equal(T.lifespan({}),'');
+  assert.equal(T.lifespan(null),'');
+});
+
 const person = (id, created_by = 'alice', locked = false) => ({ id, kind: 'person', rev: 1, deleted: 0, created_by, data: { given: id, locked } });
 const state = (...rows) => T.fromRows(1, rows);
 const edit = (p, data = p.data) => ({ id: p.id, base_rev: p.rev, kind: p.kind, data });

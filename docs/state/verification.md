@@ -14,7 +14,7 @@ sources:
   - test/database.js
   - test/relationship-benchmark.js
   - package.json
-checked: 7ef6d26
+checked: 548f05b
 ---
 
 Checks ran on 2026-10-31 with Node.js 24.14.1 and the installed Wrangler 4.151.3. The local Worker used separate storage at `/tmp/ancestree-shared-dev`. Live data was not changed.
@@ -28,6 +28,8 @@ The position-based color field passed 26 tests. A browser check found 61 distinc
 The light-color and sibling update passed 27 tests. The local browser showed black card text and six highlighted siblings for a selected person. A calculation over 100,000 field positions found at least 6.1:1 contrast for black text after the maximum brightness reduction. Mutation testing reported 138 killed and 99 surviving mutations; all four selected sibling-highlight mutations were killed.
 
 The shared-junction update passed 28 tests and a local timelapse check. Mutation testing reported 148 killed and 127 surviving mutations in the view module. Separate parent sets can still cross or overlap.
+
+The lifespan and overlay update passed 29 tests. A local browser check showed four unknown birth years as `????` and no relationship overlay. All three mutations on the changed lifespan lines were killed. Existing functions in the tree module still exceed the CRAP threshold.
 
 ## Results
 

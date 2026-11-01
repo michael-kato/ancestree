@@ -13,7 +13,7 @@ sources:
   - public/view.js
   - public/palette.js
   - migrations/0003_shared_tree.sql
-checked: 7ef6d26
+checked: 548f05b
 diagramLinks:
   Locks: node-locks
 ---
@@ -41,6 +41,8 @@ Each card samples a continuous color field at its layout position. Fixed seeded 
 Timelapse uses one layout for all years. Cards enter from a visible relative when possible, and a sound can mark arrivals. The viewport stays in place while the year changes.
 
 Children with the same visible parent set share a branch and junction. A recorded partner connection supplies its midpoint as the start of the branch. Shared segments retain their underlying relationship IDs for selection. A mixed dash pattern marks segments that represent both birth and non-birth links.
+
+When a death year is known but the birth year is not, the card shows `????` in place of the birth year.
 
 See [node locks](node-locks.md), [migration and limits](../../README.md), and [verification results](verification.md).
 
