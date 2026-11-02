@@ -16,7 +16,7 @@ sources:
   - test/database.js
   - test/relationship-benchmark.js
   - package.json
-checked: 5303317
+checked: 5b468a2
 ---
 
 Checks ran on 2026-10-31 with Node.js 24.14.1 and the installed Wrangler 4.151.3. The local Worker used separate storage at `/tmp/ancestree-shared-dev`. Live data was not changed.
@@ -44,6 +44,8 @@ A separate browser measurement used actual font widths and sampled the rounded p
 Mutation testing across the layout and view modules reported 242 killed and 159 surviving mutations. No selected site was uncovered. This is not a full mutation pass. The browser module is outside Node coverage. The separate comment critic found three removed comment blocks and no added comments or docstrings. The UML viewer did not run because its checkout, Clojure CLI, and a Java runtime on PATH were unavailable. Metrics are saved under `.metrics/`.
 
 The dependency audit reported three existing development-tool advisories in Wrangler, Miniflare, and Undici. No advisory applies to the added `d3-force` test dependency. These tools are not bundled into the browser assets. They were not upgraded in this layout change.
+
+The layout was published to `ancestree.michaelkato.work` from commit `5b468a2`. Cloudflare version `1db59338-e5b7-4c20-86f6-cb7eef0fa6df` is live. A live browser check found 421 circles, 569 connections, 284 child arrows, and the Fit tree control. The served layout file matches the committed file. All entities, the tree sequence of 8, and comment counts match the snapshot before deployment. The branch was pushed to `origin/main`.
 
 Action record for the circular layout:
 
@@ -88,7 +90,7 @@ The edit transaction uses the existing D1 batch pattern. See [D1 batch behavior]
 
 The full graph still loads for snapshots, validation, layout, and replay. There are no population-scale tests, viewport bounds, indexed neighborhood loading, or distributed writes. The benchmark does not establish whole-viewer performance.
 
-The complexity target remains unmet in existing functions and browser code. The UML viewer needs its checkout and Clojure CLI. Full-repository mutation testing, automated browser coverage, live migration, and live deployment did not run.
+The complexity target remains unmet in existing functions and browser code. The UML viewer needs its checkout and Clojure CLI. Full-repository mutation testing, automated browser coverage, and live migration did not run as part of these checks. The circular layout deployment is recorded above.
 
 The existing comment-count rule uses request time. A comment created during the snapshot can be included in the initial count and then counted again by polling. This existing behavior needs a separate sequence-based count test and fix.
 
