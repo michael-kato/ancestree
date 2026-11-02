@@ -8,13 +8,15 @@ parent: shared-tree
 sources:
   - test/tree.test.js
   - test/view.test.js
+  - test/layout.test.js
+  - test/layout-benchmark.js
   - test/worker.test.js
   - test/store.test.js
   - test/migration.test.js
   - test/database.js
   - test/relationship-benchmark.js
   - package.json
-checked: 3a12108
+checked: 5303317
 ---
 
 Checks ran on 2026-10-31 with Node.js 24.14.1 and the installed Wrangler 4.151.3. The local Worker used separate storage at `/tmp/ancestree-shared-dev`. Live data was not changed.
@@ -32,6 +34,25 @@ The shared-junction update passed 28 tests and a local timelapse check. Mutation
 The lifespan and overlay update passed 29 tests. A local browser check showed four unknown birth years as `????` and no relationship overlay. All three mutations on the changed lifespan lines were killed. Existing functions in the tree module still exceed the CRAP threshold.
 
 The junction alignment update passed 30 tests. Browser checks found rounded paths, no identical connection paths in the current tree, working sibling highlights, and no invalid paths in the timelapse. Mutation testing reported 199 killed and 125 surviving mutations in the view module. These checks do not establish that separate family groups never cross or overlap.
+
+The circular layout update passed 31 tests on 2026-11-01. The new layout module and view module each have 100% Node line coverage. Every measured function in these two modules scored below CRAP 10; the highest score is 9. The 0.8 duplicate check found no candidates in the layout, view, and browser modules. The Wrangler deployment dry run passed.
+
+The saved 421-person API snapshot was checked with `node test/layout-benchmark.js .wrangler/imports/family-2026-11-01/live-after.json`. It contains 144 family junctions and 569 connection paths. The check found zero circle collisions, zero path segments through nodes, zero duplicate paths, and zero shared segments between unrelated family groups. All 693 relationship records occur in path references. It counted 133 point crossings. Background strokes separate these crossings in the browser. Layout, routing, and measurement took 1.77 seconds on this machine. This time uses estimated text widths and includes measurement work.
+
+A separate browser measurement used actual font widths and sampled the rounded paths. It found 421 circles and 569 connections, with no clipped labels, circle collisions, repeated paths, or paths through circles. The minimum zoom reached 0.5%. Fit tree worked at desktop size and at a 390 by 844 viewport, with no horizontal page overflow. Selection kept the viewport in place. A comparison of 42 visible people across timelapse years found position differences below 0.001 layout units, due to SVG matrix rounding. The full layout is reused across years. The browser API limited one stored position map to 200 records, so this comparison does not cover every person.
+
+Mutation testing across the layout and view modules reported 242 killed and 159 surviving mutations. No selected site was uncovered. This is not a full mutation pass. The browser module is outside Node coverage. The separate comment critic found three removed comment blocks and no added comments or docstrings. The UML viewer did not run because its checkout, Clojure CLI, and a Java runtime on PATH were unavailable. Metrics are saved under `.metrics/`.
+
+The dependency audit reported three existing development-tool advisories in Wrangler, Miniflare, and Undici. No advisory applies to the added `d3-force` test dependency. These tools are not bundled into the browser assets. They were not upgraded in this layout change.
+
+Action record for the circular layout:
+
+1. Read the state map, the layout and rendering callers, the tests, the standing skills, and the two images.
+2. Added layout and zoom tests and confirmed the initial missing-layout failure. Added an obstacle-route test and confirmed that a direct route failed it.
+3. Replaced generation rows, shared tracks, and parent-line merging with family junctions, round nodes, and a cached force layout. Removed the unused ELK browser download.
+4. Checked the full family snapshot, then replaced the first obstacle detour method after it produced repeated bends. Measured the resulting routes with an independent segment check.
+5. Added full-tree fitting, zoom controls, crossing gaps, and child arrows. Checked desktop and small-screen behavior, selection, and timelapse.
+6. Ran tests, coverage, complexity, duplicate and mutation checks, a dependency audit, and a deployment dry run. Updated the state map. Kept local data, metrics, and the source album out of Git.
 
 ## Results
 

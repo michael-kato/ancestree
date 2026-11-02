@@ -4,11 +4,13 @@ One shared human tree. Anyone can view it for free. Any registered user can add 
 
 A node creator can lock or unlock that node. A lock protects the person's details, removal, and relationships. Only its creator can edit it while it is locked. New nodes are unlocked by default. All edits have a history. Undo and restore add edits; they do not erase history.
 
-Select a person to highlight their connections. Card colors sample a continuous field of seeded colors across the tree layout. The field uses 1,000 vivid colors selected from [nice-color-palettes](https://github.com/Experience-Monks/nice-color-palettes), a collection based on ColourLovers palettes. Its [MIT license](licenses/nice-color-palettes.txt) applies to the copied palette data. Colors can change if the tree layout changes; the timelapse keeps one layout across years.
+Select a person to highlight their connections. Node colors sample a continuous field of seeded colors across the tree layout. The field uses 1,000 vivid colors selected from [nice-color-palettes](https://github.com/Experience-Monks/nice-color-palettes), a collection based on ColourLovers palettes. Its [MIT license](licenses/nice-color-palettes.txt) applies to the copied palette data. Colors can change if the tree layout changes; the timelapse keeps one layout across years.
 
 Each parent, child, or partner link counts as one step. Distant cards and connections become less saturated and slightly darker. Siblings who share a recorded parent and their shared-parent connections are highlighted. Adoptive, step, and foster links also count. These are graph distances, not genetic measurements. Select Clear selection to remove the emphasis, or use Find a person to select another person.
 
-Children of the same recorded parents share a junction and branch line. Where parents have a recorded partnership, the branch starts at the midpoint of their connection. Dashed lines include non-birth parent links. A mixed pattern marks a shared segment that includes both birth and non-birth links; individual relationships remain in each person's details.
+People are circles in a compact layout that can move in both axes. Each parent set has its own family junction. Arrowheads point to children. Connections go around other circles and use rounded bends when needed. Gaps separate crossing lines. A gap is not a family junction. Dashed lines include non-birth parent links. A mixed pattern marks a shared segment that includes both birth and non-birth links; individual relationships remain in each person's details.
+
+Use the zoom buttons, mouse, or touch to zoom from 0.5% to 250%. Fit tree fits the full tree to the canvas.
 
 The timelapse keeps each person in the same position as the year changes. New cards grow from a visible relative when possible. A short sound marks new cards; use Sound on or Sound off to control it.
 
@@ -31,10 +33,11 @@ Open [the local viewer](http://localhost:8787). Sign in to contribute. Sign-in l
 npm test
 npm run coverage
 npm run benchmark
+node test/layout-benchmark.js /path/to/tree-snapshot.json
 npx wrangler deploy --dry-run
 ```
 
-The tests use Node's SQLite module and an in-memory database. They check public reads, registered-user edits, node locks, stale writes, migration, replay, media paths, and color contrast. Browser controls need a separate browser check. See [the state map](docs/state/README.md) and [verification results](docs/state/verification.md).
+The tests use Node's SQLite module and an in-memory database. They check public reads, registered-user edits, node locks, stale writes, migration, replay, media paths, and color contrast. The layout benchmark reads a saved `/api/tree` response and checks circle collisions, paths through nodes, shared segments, and relationship coverage. Browser controls need a separate browser check. See [the state map](docs/state/README.md) and [verification results](docs/state/verification.md).
 
 ## Existing data
 

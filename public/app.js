@@ -2,8 +2,9 @@
 import * as d3 from 'https://cdn.jsdelivr.net/npm/d3@7.9.0/+esm';
 import * as T from './tree.js';
 import * as G from './view.js';
+import { familyLayout } from './layout.js';
 
-const UNION = 8, PHOTO = 40, COUPLE_GAP = 28;
+const PHOTO = 40;
 const PORTS = ['top', 'bottom', 'left', 'right'];
 const PORT_DIR = { top: 'parent', bottom: 'child', left: 'partner', right: 'partner' };
 const PORT_HELP = { top: 'Drag to add a parent', bottom: 'Drag to add a child', left: 'Drag to add a partner', right: 'Drag to add a partner' };
@@ -255,11 +256,14 @@ function buildWorkspace() {
   V.el.modes = h('div', { class: 'modes', role: 'group', 'aria-label': 'View' },
     modeBtn('live', 'Tree'), modeBtn('replay', 'Edits'), modeBtn('generations', 'Timelapse'));
   V.el.svg = d3.create('svg').attr('aria-label', 'Shared human tree');
-  V.el.svg.append('defs').html('<clipPath id="avatar" clipPathUnits="objectBoundingBox"><circle cx=".5" cy=".5" r=".5"/></clipPath>');
+  V.el.svg.append('defs').html('<clipPath id="avatar" clipPathUnits="objectBoundingBox"><circle cx=".5" cy=".5" r=".5"/></clipPath><marker id="child-arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0L9,5L0,10Z" fill="context-stroke"/></marker>');
   V.el.view = V.el.svg.append('g');
   V.el.edges = V.el.view.append('g');
   V.el.people = V.el.view.append('g');
-  V.zoom = d3.zoom().scaleExtent([0.15, 2.5]).on('zoom', (ev) => V.el.view.attr('transform', ev.transform));
+  V.zoom = d3.zoom().scaleExtent(G.ZOOM_EXTENT).on('zoom', (ev) => {
+    V.el.view.attr('transform', ev.transform);
+    V.el.zoomLevel.textContent = `${Math.round(ev.transform.k * 1000) / 10}%`;
+  });
   V.el.svg.call(V.zoom).on('dblclick.zoom', null);
   V.el.svg.on('click', (ev) => { if (ev.target === V.el.svg.node()) { closeQuickAdd(); select(null); } });
   V.el.empty = h('div', { class: 'empty' });
@@ -272,7 +276,14 @@ function buildWorkspace() {
     V.el.sound.setAttribute('aria-pressed', String(V.sound));
     if (V.sound) enableAudio();
   } }, 'Sound on');
-  V.el.stage = h('main', { class: 'stage ground' }, V.el.svg.node(), V.el.empty, V.el.player);
+  V.el.zoomLevel = h('output', { 'aria-label': 'Zoom level' }, '100%');
+  const zoomBy = (factor) => V.el.svg.transition().duration(reduceMotion ? 0 : 180).call(V.zoom.scaleBy, factor);
+  const zoomControls = h('div', { class: 'zoom-controls', role: 'group', 'aria-label': 'Tree zoom' },
+    h('button', { type: 'button', 'aria-label': 'Zoom out', onclick: () => zoomBy(0.6) }, '−'),
+    V.el.zoomLevel,
+    h('button', { type: 'button', 'aria-label': 'Zoom in', onclick: () => zoomBy(1 / 0.6) }, '+'),
+    h('button', { type: 'button', onclick: () => fitView(V.layout, 250) }, 'Fit tree'));
+  V.el.stage = h('main', { class: 'stage ground' }, V.el.svg.node(), V.el.empty, V.el.player, zoomControls);
   V.el.tabs = h('nav', { class: 'tabs', role: 'tablist' });
   V.el.body = h('div', { class: 'panel-body' });
   root.replaceChildren(h('div', { class: 'app' },
@@ -288,16 +299,6 @@ function buildWorkspace() {
 
 // ---------- canvas ----------
 
-const ELK_OPTIONS = {
-  'elk.algorithm': 'layered',
-  'elk.direction': 'DOWN',
-  'elk.layered.spacing.nodeNodeBetweenLayers': '60', // room for MAX_TRACKS sibling bars
-  'elk.spacing.nodeNode': '26',
-  'elk.spacing.componentComponent': '60',
-  'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
-  'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
-};
-let elk;
 let audio;
 
 function enableAudio() {
@@ -336,85 +337,6 @@ function shownState() {
   return { state: V.state };
 }
 
-// Couples are laid out as one block node with fixed ports, so ELK keeps partners together
-// while it minimises crossings: a top port per member, a bottom port per set of their children.
-function elkGraph(g, blocks, cards) {
-  const blockOf = new Map(), offset = new Map(), vertical = new Map();
-  const heights = blocks.map((members) => Math.max(...members.map((id) => cards.get(id).height)));
-  blocks.forEach((members, b) => {
-    let x = 0;
-    for (const id of members) {
-      blockOf.set(id, b);
-      offset.set(id, x);
-      vertical.set(id, (heights[b] - cards.get(id).height) / 2);
-      x += cards.get(id).width + COUPLE_GAP;
-    }
-  });
-  const port = (id, x, y, side) => ({ id, x, y, width: 1, height: 1, layoutOptions: { 'elk.port.side': side } });
-  const bottom = blocks.map(() => []);
-  const edges = [], unionNodes = [];
-  const center = (id) => offset.get(id) + cards.get(id).width / 2;
-  for (const u of g.unions) {
-    if (!u.children.length) continue;
-    const b = blockOf.get(u.parents[0]);
-    const together = u.parents.every((p) => blockOf.get(p) === b);
-    if (together) {
-      const x = u.parents.reduce((sum, id) => sum + center(id), 0) / u.parents.length;
-      bottom[b].push(port(`pb:${u.id}`, x, heights[b], 'SOUTH'));
-      u.children.forEach((c) => edges.push({ id: `${u.id}>${c}`, sources: [`pb:${u.id}`], targets: [`pt:${c}`] }));
-    } else {
-      unionNodes.push({ id: u.id, width: UNION, height: UNION });
-      u.parents.forEach((p) => {
-        const pid = `pb:${u.id}:${p}`;
-        bottom[blockOf.get(p)].push(port(pid, center(p), vertical.get(p) + cards.get(p).height, 'SOUTH'));
-        edges.push({ id: `${p}>${u.id}`, sources: [pid], targets: [u.id] });
-      });
-      u.children.forEach((c) => edges.push({ id: `${u.id}>${c}`, sources: [u.id], targets: [`pt:${c}`] }));
-    }
-  }
-  const children = blocks.map((members, b) => ({
-    id: `b:${members[0]}`,
-    width: members.reduce((sum, id) => sum + cards.get(id).width + COUPLE_GAP, -COUPLE_GAP), height: heights[b],
-    layoutOptions: { 'elk.portConstraints': 'FIXED_POS' },
-    ports: [...members.map((id) => port(`pt:${id}`, center(id), vertical.get(id), 'NORTH')), ...bottom[b]],
-  }));
-  return { graph: { id: 'root', layoutOptions: ELK_OPTIONS, children: [...children, ...unionNodes], edges }, offset, vertical };
-}
-
-// Flip a couple when each partner's parents sit on the other side, then lay out again.
-function flipBlocks(blocks, pos, state) {
-  const { parents } = T.relatives(state);
-  let flipped = false;
-  const out = blocks.map((members) => {
-    const xs = members.map((id) => {
-      const ps = (parents.get(id) || []).map((r) => pos.get(r.id)).filter(Boolean);
-      return ps.length ? ps.reduce((a, p) => a + p.x, 0) / ps.length : null;
-    });
-    const known = xs.map((x, i) => [x, i]).filter(([x]) => x != null);
-    if (known.length >= 2 && known[0][0] > known[known.length - 1][0]) { flipped = true; return [...members].reverse(); }
-    return members;
-  });
-  return flipped ? out : null;
-}
-
-async function layoutTree(g, state, cards) {
-  elk ||= new window.ELK();
-  let blocks = T.partnerBlocks(state, g.people);
-  for (let pass = 0; ; pass++) {
-    const { graph, offset, vertical } = elkGraph(g, blocks, cards);
-    const layout = await elk.layout(graph);
-    const pos = new Map();
-    for (const n of layout.children) {
-      if (n.id.startsWith('b:')) {
-        blocks.find((m) => `b:${m[0]}` === n.id).forEach((id) => pos.set(id, { x: n.x + offset.get(id), y: n.y + vertical.get(id), ...cards.get(id) }));
-      } else pos.set(n.id, { x: n.x, y: n.y });
-    }
-    const next = pass === 0 && flipBlocks(blocks, pos, state);
-    if (!next) return { layout, pos, blocks };
-    blocks = next;
-  }
-}
-
 function measureCards(people) {
   const context = document.createElement('canvas').getContext('2d');
   context.font = `600 15px ${getComputedStyle(document.body).fontFamily}`;
@@ -434,11 +356,11 @@ async function draw({ highlight = new Set(), duration = 450, fit = false } = {})
   const { state, visible } = shownState();
   const g = T.familyGraph(state, visible);
   const layoutGraph = V.mode === 'generations' ? T.familyGraph(state) : g;
-  let cached = V.mode === 'generations' && V.generationLayout?.state === state && V.generationLayout;
+  let cached = V.layoutCache?.state === state && V.layoutCache;
   if (!cached) {
     const cards = measureCards(layoutGraph.people);
-    cached = { state, cards, ...await layoutTree(layoutGraph, state, cards) };
-    if (V && token === V.drawToken && V.mode === 'generations') V.generationLayout = cached;
+    cached = { state, cards, ...familyLayout(layoutGraph, cards, d3) };
+    V.layoutCache = cached;
   }
   if (!V || token !== V.drawToken) return;
   const { cards, layout, pos } = cached;
@@ -449,16 +371,25 @@ async function draw({ highlight = new Set(), duration = 450, fit = false } = {})
   V.renderedIds = new Set(g.people.map((p) => p.id));
   if (V.mode === 'generations') V.lastGenerationYear = V.year;
   V.cards = cards;
+  V.layout = layout;
   V.pos = pos;
   fill(V.el.find, h('option', { value: '' }, 'Find a person…'), g.people.map((p) => h('option', { value: p.id }, fullName(p.data) || 'Unknown')));
   const t = d3.transition().duration(reduceMotion ? 0 : duration).ease(d3.easeCubicInOut);
-  const visiblePos = new Map(g.people.map((p) => [p.id, pos.get(p.id)]));
-  const edgeData = G.connectionPaths(state, g, visiblePos);
-  V.el.edges.selectAll('path').data(edgeData, (d) => d.id).join(
-    (enter) => enter.append('path').attr('class', 'edge').attr('d', (d) => d.d).attr('opacity', 0).call((s) => s.transition(t).attr('opacity', 1)),
-    (update) => update.classed('exiting', false).call((s) => s.transition(t).attr('d', (d) => d.d).attr('opacity', 1)),
+  const edgeData = G.connectionPaths(state, g, pos);
+  const connections = V.el.edges.selectAll('g.connection').data(edgeData, (d) => d.id).join(
+    (enter) => {
+      const group = enter.append('g').attr('class', 'connection').attr('opacity', 0);
+      group.append('path').attr('class', 'edge-gap').attr('d', (d) => d.d);
+      group.append('path').attr('class', 'edge').attr('d', (d) => d.d);
+      return group.call((s) => s.transition(t).attr('opacity', 1));
+    },
+    (update) => update.classed('exiting', false).call((s) => {
+      s.transition(t).attr('opacity', 1);
+      s.selectAll('path').transition(t).attr('d', (d) => d.d);
+    }),
     (exit) => exit.classed('exiting', true).call((s) => s.transition(t).style('opacity', 0).remove()),
-  ).classed('chosen', (d) => !!d.chosen).classed('mixed', (d) => !!d.mixed);
+  );
+  connections.select('.edge').attr('marker-end', (d) => d.child ? 'url(#child-arrow)' : null).classed('chosen', (d) => !!d.chosen).classed('mixed', (d) => !!d.mixed);
 
   const at = (d) => `translate(${pos.get(d.id).x},${pos.get(d.id).y})`;
   V.el.people.selectAll('g.person').data(g.people, (d) => d.id).join(
@@ -472,7 +403,7 @@ async function draw({ highlight = new Set(), duration = 450, fit = false } = {})
       .on('keydown', (ev, d) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); select(d.id); } })
       .call((s) => {
         const body = s.append('g').attr('class', 'appearance').attr('opacity', 0);
-        body.append('rect').attr('rx', 10);
+        body.append('circle').attr('class', 'node');
         body.append('image').attr('x', 9).attr('width', PHOTO).attr('height', PHOTO).attr('clip-path', 'url(#avatar)').attr('preserveAspectRatio', 'xMidYMid slice');
         body.append('text').attr('class', 'name').attr('y', 25);
         body.append('text').attr('class', 'years').attr('y', 43);
@@ -497,12 +428,12 @@ async function draw({ highlight = new Set(), duration = 450, fit = false } = {})
   ).each(function (d) {
     const g = d3.select(this), photo = d.data.photo, card = cards.get(d.id);
     g.classed('editable', editor(d));
-    g.select('rect').attr('width', card.width).attr('height', card.height);
-    g.select('.lock').attr('x', card.width - 10).attr('y', card.height - 7).text(d.data.locked ? 'Locked' : '');
-    g.select('.badge').attr('transform', `translate(${card.width - 4},4)`);
+    g.select('.node').attr('cx', card.width / 2).attr('cy', card.height / 2).attr('r', card.width / 2);
+    g.select('.lock').attr('text-anchor', 'middle').attr('x', card.width / 2).attr('y', card.height - 12).text(d.data.locked ? 'Locked' : '');
+    g.select('.badge').attr('transform', `translate(${card.width * 0.85},${card.height * 0.15})`);
     for (const [side, x, y] of G.ports(card)) g.select(`.port.${side}`).attr('transform', `translate(${x},${y})`);
     setBadge(g, d);
-    g.select('image').attr('y', (card.height - PHOTO) / 2).attr('href', photo ? `/api/tree/media/${photo}` : null).attr('display', photo ? null : 'none');
+    g.select('image').attr('x', (card.width - PHOTO) / 2).attr('y', card.photoY).attr('href', photo ? `/api/tree/media/${photo}` : null).attr('display', photo ? null : 'none');
     cardText(g.select('.name'), card.nameLines, card.textX, card.nameY, 20);
     cardText(g.select('.years'), card.subtitleLines, card.textX, card.subtitleY, 17);
     g.classed('lit', false);
@@ -629,20 +560,10 @@ function openQuickAdd(from, dir, [x, y], line) {
   first.focus();
 }
 
-function fitView(layout, duration, visible) {
+function fitView(layout, duration) {
   const { width, height } = V.el.svg.node().getBoundingClientRect();
-  if (!width || !layout.width) return;
   const playerSpace = V.mode === 'live' ? 0 : 150;
-  const pad = 40;
-  const focus = (!visible || visible.has(V.selected)) && V.pos.get(V.selected);
-  if (focus) {
-    const k = Math.min(1, (width - pad * 2) / focus.width);
-    const next = d3.zoomIdentity.translate(width / 2 - (focus.x + focus.width / 2) * k, (height - playerSpace) / 2 - (focus.y + focus.height / 2) * k).scale(k);
-    V.el.svg.transition().duration(reduceMotion ? 0 : duration).call(V.zoom.transform, next);
-    return;
-  }
-  const k = Math.max(0.8, Math.min(1.1, (width - pad * 2) / layout.width, (height - playerSpace - pad * 2) / layout.height));
-  const x = (width - layout.width * k) / 2, y = (height - playerSpace - layout.height * k) / 2;
+  const { x, y, k } = G.fitTransform(layout, width, height - playerSpace);
   V.el.svg.transition().duration(reduceMotion ? 0 : duration).call(V.zoom.transform, d3.zoomIdentity.translate(x, y).scale(k));
 }
 
@@ -682,15 +603,16 @@ function colorPeople(state, visible) {
     g.classed('selected', d.id === focus).classed('sibling', siblings.people.has(d.id))
       .style('--relation-color', G.colorCss(colors.get(d.id)))
       .attr('data-distance', distance).attr('tabindex', 0).attr('aria-hidden', null);
-    g.select('rect').style('filter', siblings.people.has(d.id) ? 'none' : filter(d.id));
+    g.select('.node').style('filter', siblings.people.has(d.id) ? 'none' : filter(d.id));
     g.attr('aria-label', `${fullName(d.data) || 'Unknown'}. ${label}.${d.data.locked ? ' Locked.' : ''}`);
     g.select('title').text(`${fullName(d.data) || 'Unknown'}: ${label}${d.data.locked ? '. Locked' : ''}`);
   });
   const highlighted = (d) => d.people.includes(focus) || d.refs.some((id) => siblings.edges.has(id));
-  V.el.edges.selectAll('path:not(.exiting)').classed('highlighted', highlighted)
+  const connections = V.el.edges.selectAll('.connection:not(.exiting)').classed('highlighted', highlighted);
+  connections.select('.edge').classed('highlighted', highlighted)
     .style('filter', (d) => highlighted(d) ? 'none' : G.distanceFilter(Math.max(distances.get(d.a) ?? Infinity, distances.get(d.b) ?? Infinity), Boolean(focus)))
     .style('--edge-color', (d) => G.colorCss([0, 1, 2].map((axis) => ((colors.get(d.a) || [0.8, 0, 0])[axis] + (colors.get(d.b) || [0.8, 0, 0])[axis]) / 2)));
-  V.el.edges.selectAll('.highlighted').raise();
+  connections.filter(highlighted).raise();
   V.el.overview.disabled = !focus;
 }
 

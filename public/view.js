@@ -42,15 +42,21 @@ export function wrapText(text, width, measure) {
 }
 
 export function cardLayout(name, subtitle, photo, measure) {
-  const padding = photo ? 60 : 16;
-  const width = Math.max(188, Math.min(340, Math.max(measure(name), measure(subtitle)) + padding * 2));
-  const textX = width / 2, textWidth = width - padding * 2;
+  const textWidth = 144;
   const nameLines = wrapText(name, textWidth, measure);
   const subtitleLines = wrapText(subtitle, textWidth, measure);
   const textHeight = nameLines.length * 20 + subtitleLines.length * 17 + (subtitleLines.length ? 4 : 0);
-  const height = Math.max(76, textHeight + 40);
-  const nameY = (height - textHeight) / 2 + 15;
-  return { width, height, textX, textWidth, nameLines, subtitleLines, nameY, subtitleY: nameY + nameLines.length * 20 + 4 };
+  const contentHeight = textHeight + (photo ? 52 : 0);
+  const width = Math.max(172, Math.hypot(textWidth, contentHeight) + 32);
+  const nameY = (width - contentHeight) / 2 + (photo ? 52 : 0) + 15;
+  return { width, height: width, textX: width / 2, textWidth, nameLines, subtitleLines, nameY, subtitleY: nameY + nameLines.length * 20 + 4, photoY: (width - contentHeight) / 2 };
+}
+
+export const ZOOM_EXTENT = [0.005, 2.5];
+
+export function fitTransform(bounds, width, height) {
+  const k = Math.max(ZOOM_EXTENT[0], Math.min(1, (width - 80) / (bounds.width || 1), (height - 80) / (bounds.height || 1)));
+  return { x: (width - bounds.width * k) / 2, y: (height - bounds.height * k) / 2, k };
 }
 
 export const ports = ({ width, height }) => [['top', width / 2, 0], ['bottom', width / 2, height], ['left', 0, height / 2], ['right', width, height / 2]];
@@ -122,139 +128,95 @@ export function roundedPath(points, radius = 12) {
   return clean.length > 1 ? `${path}L${clean.at(-1)}` : path;
 }
 
-export function siblingTracks(descents) {
-  const tracks = new Map(), byLayer = new Map();
-  for (const d of descents) {
-    const xs = [d.sx, ...d.kids.map((k) => k.x)];
-    d.span = [Math.min(...xs), Math.max(...xs)];
-    const layer = Math.round(Math.min(...d.kids.map((k) => k.y)));
-    if (!byLayer.has(layer)) byLayer.set(layer, []);
-    byLayer.get(layer).push(d);
-  }
-  for (const group of byLayer.values()) {
-    const ends = [];
-    for (const d of group.sort((a, b) => a.span[0] - b.span[0])) {
-      let t = ends.findIndex((end) => end + 12 < d.span[0]);
-      if (t < 0 || t >= 4) t = ends.length < 4 ? ends.length : ends.indexOf(Math.min(...ends));
-      ends[t] = Math.max(ends[t] ?? -Infinity, d.span[1]);
-      tracks.set(d, t);
-    }
-  }
-  return tracks;
+const center = (p) => [p.x + p.width / 2, p.y + p.height / 2];
+
+function junction(union, pos) {
+  if (pos.has(union.id)) return center(pos.get(union.id));
+  const points = [...union.parents, ...union.children].map((id) => center(pos.get(id)));
+  return [0, 1].map((axis) => points.reduce((sum, p) => sum + p[axis], 0) / points.length);
 }
 
-export function connectionPaths(state, graph, pos) {
-  const center = (p) => p.x + p.width / 2;
-  const links = [...state.entities.values()].filter((e) => isLive(e) && e.kind !== 'person');
-  const pairs = new Map(links.filter((e) => e.kind === 'partner').map((e) => [[e.data.a, e.data.b].sort().join('\0'), e]));
-  const parents = new Map(links.filter((e) => e.kind === 'parent').map((e) => [`${e.data.parent}\0${e.data.child}`, e]));
-  const paths = links.filter((e) => e.kind === 'partner' && pos.has(e.data.a) && pos.has(e.data.b)).flatMap((e) => {
-    const points = partnerPoints(pos.get(e.data.a), pos.get(e.data.b));
-    const mid = partnerMidpoint(points);
-    const halves = points.length === 2 ? [[points[0], mid], [mid, points[1]]] : [[points[0], points[1], mid], [mid, points[2], points[3]]];
-    return halves.map((half, i) => ({ id: `${e.id}:${i}`, a: e.data.a, b: e.data.b, people: [e.data.a, e.data.b], refs: [e.id], d: roundedPath(half) }));
+function circlePort(card, point) {
+  const origin = center(card), dx = point[0] - origin[0], dy = point[1] - origin[1];
+  const length = Math.hypot(dx, dy) || 1;
+  return [origin[0] + dx / length * card.width / 2, origin[1] + dy / length * card.height / 2];
+}
+
+function segmentClearance(a, b, card) {
+  const c = center(card), dx = b[0] - a[0], dy = b[1] - a[1];
+  const t = Math.max(0, Math.min(1, ((c[0] - a[0]) * dx + (c[1] - a[1]) * dy) / (dx * dx + dy * dy || 1)));
+  return Math.hypot(c[0] - a[0] - t * dx, c[1] - a[1] - t * dy) - card.width / 2;
+}
+
+function closestPoint(points, distance, visited) {
+  let best = -1;
+  for (let i = 0; i < points.length; i++) if (!visited.has(i) && (best < 0 || distance[i] < distance[best])) best = i;
+  return best;
+}
+
+function relaxRoutes(current, points, obstacles, distance, previous, visited) {
+  for (let next = 0; next < points.length; next++) {
+    if (visited.has(next)) continue;
+    const cost = distance[current] + Math.hypot(points[next][0] - points[current][0], points[next][1] - points[current][1]);
+    if (cost >= distance[next] || obstacles.some((o) => segmentClearance(points[current], points[next], o) < 12)) continue;
+    distance[next] = cost;
+    previous[next] = current;
+  }
+}
+
+function shortestRoute(a, b, obstacles, offset) {
+  const points = [a, b, ...obstacles.flatMap((o) => Array.from({ length: 12 }, (_, i) => {
+    const angle = i * Math.PI / 6, radius = (o.width / 2 + 18 + offset) / Math.cos(Math.PI / 12), c = center(o);
+    return [c[0] + Math.cos(angle) * radius, c[1] + Math.sin(angle) * radius];
+  }))];
+  const distance = points.map(() => Infinity), previous = [], visited = new Set();
+  distance[0] = 0;
+  for (;;) {
+    const current = closestPoint(points, distance, visited);
+    if (current < 0 || distance[current] === Infinity) return [a, b];
+    if (current === 1) break;
+    visited.add(current);
+    relaxRoutes(current, points, obstacles, distance, previous, visited);
+  }
+  const route = [];
+  for (let i = 1; i != null; i = previous[i]) route.unshift(points[i]);
+  return route;
+}
+
+function routedPoints(card, hub, obstacles, offset) {
+  const start = center(card), blockers = new Set();
+  let points = [start, hub];
+  for (let pass = 0; pass < 12; pass++) {
+    const added = obstacles.filter((o) => !blockers.has(o) && points.some((p, i) => i && segmentClearance(points[i - 1], p, o) < 12));
+    if (!added.length) break;
+    added.forEach((o) => blockers.add(o));
+    points = shortestRoute(start, hub, [...blockers], offset);
+  }
+  points[0] = circlePort(card, points[1]);
+  return points;
+}
+
+function familySegment(union, id, points, records, people, child = null) {
+  const chosen = records.some((e) => e.kind === 'parent' && e.data.type !== 'birth');
+  const birth = records.some((e) => e.kind === 'parent' && e.data.type === 'birth');
+  return { id: `${union.id}:${id}`, family: union.id, child, a: people[0], b: people.at(-1), people, refs: records.map((e) => e.id), chosen: chosen && !birth, mixed: chosen && birth, points, d: roundedPath(points) };
+}
+
+function unionPaths(union, index, graph, pos, links) {
+  const hub = junction(union, pos);
+  const parents = links.filter((e) => e.kind === 'parent' && union.parents.includes(e.data.parent) && union.children.includes(e.data.child));
+  const partner = links.find((e) => e.kind === 'partner' && union.parents.length === 2 && union.parents.includes(e.data.a) && union.parents.includes(e.data.b));
+  const route = (id) => routedPoints(pos.get(id), hub, graph.people.filter((p) => p.id !== id).map((p) => pos.get(p.id)), index * 0.13);
+  const paths = union.parents.map((p) => {
+    const records = parents.filter((e) => e.data.parent === p);
+    if (partner) records.push(partner);
+    return familySegment(union, `parent:${p}`, route(p), records, [...union.parents, ...union.children]);
   });
-  const descents = graph.unions.filter((u) => u.children.length).map((u) => ({
-    union: u, sx: u.parents.reduce((sum, id) => sum + center(pos.get(id)), 0) / u.parents.length,
-    kids: u.children.map((c) => ({ c, x: center(pos.get(c)), y: pos.get(c).y })),
-  }));
-  const tracks = siblingTracks(descents);
-  for (const descent of descents) paths.push(...unionPaths(descent, tracks.get(descent), pos, pairs, parents));
-  return mergeParentPaths(paths);
-}
-
-function unionPaths({ union, kids }, track, pos, pairs, parents) {
-  const center = (p) => p.x + p.width / 2;
-  const refs = union.parents.flatMap((p) => union.children.map((c) => parents.get(`${p}\0${c}`))).filter(Boolean);
-  const trackY = Math.min(...kids.map((k) => k.y)) - 14 - track * 9;
-  const { partner, sx, joinY } = unionJunction(union, pos, pairs, trackY);
-  const paths = [];
-  const add = (id, vertices, records, participants) => paths.push(unionSegment(union, id, vertices, records, participants));
-  if (!partner) {
-    for (const p of union.parents) {
-      const card = pos.get(p);
-      const segment = unionSegment(union, `parent:${p}`, [[center(card), card.y + card.height], [center(card), joinY]], refs.filter((e) => e.data.parent === p));
-      segment.parent = p;
-      segment.endpoints = [card.y + card.height, joinY];
-      segment.x = center(card);
-      paths.push(segment);
-    }
-    if (union.parents.length > 1) {
-      const xs = [...new Set([sx, ...union.parents.map((p) => center(pos.get(p)))])].sort((a, b) => a - b);
-      for (let i = 1; i < xs.length; i++) add(`parents:${i - 1}`, [[xs[i - 1], joinY], [xs[i], joinY]], refs);
-    }
-  }
-  add('stem', [[sx, joinY], [sx, trackY]], refs);
-  const branches = kids.map((k) => ({ ...k, start: childBranchStart(k, sx, trackY) }));
-  const xs = [...new Set([sx, ...branches.map((k) => k.start)])].sort((a, b) => a - b);
-  for (let i = 1; i < xs.length; i++) add(`bar:${i - 1}`, [[xs[i - 1], trackY], [xs[i], trackY]], refs);
-  for (const k of branches) {
-    const segment = unionSegment(union, `child:${k.c}`, [], refs.filter((e) => e.data.child === k.c), [...union.parents, k.c]);
-    segment.d = childBranchPath(k, trackY);
-    paths.push(segment);
-  }
+  for (const c of union.children) paths.push(familySegment(union, `child:${c}`, route(c).reverse(), parents.filter((e) => e.data.child === c), [...union.parents, c], c));
   return paths;
 }
 
-function mergeParentPaths(paths) {
-  const groups = new Map(), result = [];
-  for (const path of paths) {
-    if (!path.parent) { result.push(path); continue; }
-    if (!groups.has(path.parent)) groups.set(path.parent, []);
-    groups.get(path.parent).push(path);
-  }
-  for (const [parent, group] of groups) result.push(...mergeParentGroup(parent, group));
-  return result;
-}
-
-function mergeParentGroup(parent, group) {
-  if (group.length === 1) return group;
-  const points = [...new Set(group.flatMap((p) => p.endpoints))].sort((a, b) => a - b), result = [];
-  for (let i = 1; i < points.length; i++) {
-    const start = points[i - 1], end = points[i];
-    const covered = group.filter((p) => Math.min(...p.endpoints) <= start && Math.max(...p.endpoints) >= end);
-    const chosen = covered.some((p) => p.chosen || p.mixed);
-    const birth = covered.some((p) => !p.chosen || p.mixed);
-    result.push({ ...covered[0], id: `parent:${parent}:${i - 1}`, people: [...new Set(covered.flatMap((p) => p.people))], refs: [...new Set(covered.flatMap((p) => p.refs))], chosen: chosen && !birth, mixed: chosen && birth, d: `M${covered[0].x},${start}L${covered[0].x},${end}` });
-  }
-  return result;
-}
-
-function childBranchStart(child, sx, trackY) {
-  const radius = Math.min(12, Math.abs(child.x - sx) / 2, Math.max(0, child.y - trackY) / 2);
-  return child.x - Math.sign(child.x - sx) * radius;
-}
-
-function childBranchPath(child, trackY) {
-  if (child.start === child.x) return `M${child.x},${trackY}L${child.x},${child.y}`;
-  const radius = Math.abs(child.start - child.x);
-  return `M${child.start},${trackY}Q${child.x},${trackY} ${child.x},${trackY + radius}L${child.x},${child.y}`;
-}
-
-function unionJunction(union, pos, pairs, trackY) {
-  const partner = union.parents.length === 2 && pairs.get(union.parents.join('\0'));
-  const points = partner && partnerPoints(pos.get(partner.data.a), pos.get(partner.data.b));
-  const mid = points && partnerMidpoint(points);
-  const sx = mid ? mid[0] : union.parents.reduce((sum, p) => sum + pos.get(p).x + pos.get(p).width / 2, 0) / union.parents.length;
-  const joinY = mid ? mid[1] : Math.min(trackY - 8, Math.max(...union.parents.map((p) => pos.get(p).y + pos.get(p).height)) + 20);
-  return { partner, sx, joinY };
-}
-
-function partnerMidpoint(points) {
-  const left = points.length === 2 ? points[0] : points[1];
-  const right = points.length === 2 ? points[1] : points[2];
-  return [0, 1].map((axis) => (left[axis] + right[axis]) / 2);
-}
-
-function unionSegment(union, id, vertices, records, participants = [...union.parents, ...union.children]) {
-  const chosen = records.some((e) => e.data.type !== 'birth');
-  return { id: `${union.id}:${id}`, a: union.parents[0], b: union.children[0], people: participants, refs: records.map((e) => e.id), chosen: chosen && records.every((e) => e.data.type !== 'birth'), mixed: chosen && records.some((e) => e.data.type === 'birth'), d: roundedPath(vertices) };
-}
-
-function partnerPoints(A, B) {
-  const [L, R] = A.x < B.x ? [A, B] : [B, A];
-  const center = (p) => p.x + p.width / 2;
-  return R.x - L.x - L.width > 29
-    ? [[center(L), L.y], [center(L), L.y - 24], [center(R), R.y - 24], [center(R), R.y]]
-    : [[L.x + L.width, L.y + L.height / 2], [R.x, R.y + R.height / 2]];
+export function connectionPaths(state, graph, pos) {
+  const links = [...state.entities.values()].filter((e) => isLive(e) && e.kind !== 'person');
+  return graph.unions.flatMap((union, index) => unionPaths(union, index, graph, pos, links));
 }

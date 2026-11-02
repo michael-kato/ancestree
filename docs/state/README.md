@@ -11,9 +11,10 @@ sources:
   - public/app.js
   - public/tree.js
   - public/view.js
+  - public/layout.js
   - public/palette.js
   - migrations/0003_shared_tree.sql
-checked: 3a12108
+checked: 5303317
 diagramLinks:
   Locks: node-locks
 ---
@@ -40,9 +41,13 @@ Each card samples a continuous color field at its layout position. Fixed seeded 
 
 Timelapse uses one layout for all years. Cards enter from a visible relative when possible, and a sound can mark arrivals. The viewport stays in place while the year changes.
 
-Children with the same visible parent set share a branch and junction. A recorded partner connection supplies its midpoint as the start of the branch. Shared segments retain their underlying relationship IDs for selection. A mixed dash pattern marks segments that represent both birth and non-birth links.
+People use circular nodes. The measured name, dates, and optional photo fit inside the circle. A radial starting arrangement and D3 forces place people and family junctions in both axes. A circle collision force leaves space between nodes. The layout is calculated once per state and reused across timelapse years.
 
-Branches meet at common endpoints and curve into each child. When a parent appears in multiple parent sets, overlapping outgoing segments are combined and split at their junctions.
+Each visible parent set has its own junction. Paths join the parents to that junction and then join the junction to each child. Lines from different parent sets are not merged. Arrowheads point to children. Shared segments retain relationship IDs for highlighting. Dashed paths mark non-birth links. Mixed paths include both birth and non-birth links.
+
+Connections use a short route around circular node bounds, with rounded bends. A background stroke separates lines at crossings. This gap does not indicate a family junction. Routing can keep a single straight segment when it has no obstacle.
+
+The zoom range is 0.5% to 250%. Buttons, mouse, and touch use the same range. Fit tree fits the full layout to the available canvas, including space for the timelapse player. Selection keeps the viewport in place. The first view fits the full tree.
 
 When a death year is known but the birth year is not, the card shows `????` in place of the birth year.
 
@@ -50,4 +55,4 @@ See [node locks](node-locks.md), [migration and limits](../../README.md), and [v
 
 ## Gaps
 
-The viewer and validator load the full graph. Population-scale loading, rendering, and concurrent writes need a separate design and load tests. Browser checks do not contribute to Node coverage. Separate parent sets and complex partnerships can still produce crossings or overlaps.
+The viewer and validator load the full graph. Population-scale loading, rendering, and concurrent writes need a separate design and load tests. Browser checks do not contribute to Node coverage. Point crossings can remain in a connected family graph. Routing uses twelve passes and can fall back to a direct segment when it cannot find a route. The current 421-person snapshot has no circle collisions, paths through nodes, or shared segments between unrelated families. This is not a proof for all future data.

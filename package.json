@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "devDependencies": {
+    "d3-force": "^3.0.0",
     "wrangler": "^4.151.3"
   },
   "scripts": {
