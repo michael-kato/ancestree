@@ -16,6 +16,8 @@ checked: 5303317
 
 A new person node records its creator and starts unlocked. A creator can lock it at creation or in a later edit. The server decides access from the stored creator ID and lock state. It does not trust creator IDs from an edit request.
 
+The Family map has read access. Its link to the full tree returns the user to the editor, where the server applies the same lock rules.
+
 ```mermaid
 stateDiagram-v2
     [*] --> Open: create open

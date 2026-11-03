@@ -13,6 +13,7 @@ sources:
   - public/view.js
   - public/layout.js
   - public/palette.js
+  - public/family-map
   - migrations/0003_shared_tree.sql
 checked: 5303317
 diagramLinks:
@@ -34,6 +35,8 @@ flowchart LR
 The arrows show calls and data access. They are not a sequence of states.
 
 The Worker uses one internal tree record with ID `human`. The database retains `tree_id` columns for stored records. The viewer uses `/api/tree`. Public responses do not include account email addresses. Comments can be edited or deleted only by their author.
+
+The Family map reads the same tree at `/family-map/`. A person selector and a family level selector control the view. Wide descendant branches fit into compact groups. The map links back to the full tree for edits.
 
 Edits read a sequence and the current entities. Validation checks node revisions, locks, relationship endpoints, and graph rules. The database batch writes only if the sequence is still current. If another write wins, the Worker reads the data again and repeats validation.
 

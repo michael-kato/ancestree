@@ -289,7 +289,9 @@ function buildWorkspace() {
   root.replaceChildren(h('div', { class: 'app' },
     h('header', { class: 'bar' },
       h('a', { class: 'home', href: '/', onclick: (ev) => { ev.preventDefault(); go('/'); } }, 'Ancestree'),
-      h('span', { class: 'spacer' }), V.el.find, V.el.overview, V.el.modes, V.el.sound,
+      h('span', { class: 'spacer' }),
+      h('a', { class: 'btn quiet small', href: '/family-map/' }, 'Family map'),
+      V.el.find, V.el.overview, V.el.modes, V.el.sound,
       editor() && h('button', { class: 'btn quiet small', onclick: () => { V.selected = null; openForm({ type: 'add', relation: 'first' }); } }, 'Add person'),
       me ? h('button', { class: 'btn quiet small', onclick: signOut }, 'Sign out')
         : h('a', { class: 'btn quiet small', href: '/signin', onclick: (ev) => { ev.preventDefault(); go('/signin'); } }, 'Sign in to edit')),
