@@ -19,7 +19,7 @@ function rowPeople(group) {
 }
 
 function childRows(children) {
-  const columns=Math.ceil(Math.sqrt(children.length*1.25));
+  const columns=Math.ceil(Math.sqrt(children.length*2.3));
   const rows=[];
   for(let i=0;i<children.length;i+=columns)rows.push(children.slice(i,i+columns));
   return rows;
@@ -89,7 +89,7 @@ function turnCouple(group,parent,others) {
   return group;
 }
 
-function orientPairs(tree,placed) {
+function orientPairs(tree,placed,packed) {
   const groups=new Map();
   for(const p of placed){
     if(!groups.has(p.cohort))groups.set(p.cohort,[]);
@@ -97,7 +97,7 @@ function orientPairs(tree,placed) {
   }
   function visit(branch,parent) {
     let group=groups.get(branch.id);
-    if(group[0].free&&branch.depth>=2&&group.length===2){
+    if(packed.has(branch.branch)&&branch.depth>=2&&group.length===2){
       const other=[...groups.entries()].filter(([id])=>id!==branch.id).flatMap(([,p])=>p);
       group=turnCouple(group,parent,other);
       groups.set(branch.id,group);
@@ -108,21 +108,22 @@ function orientPairs(tree,placed) {
   return [...groups.values()].flat();
 }
 
-export function packFamilies(nodes,tree) {
+export function packFamilies(nodes,tree,branchIds) {
   const groups=new Map();
   for(const person of nodes){
     if(!groups.has(person.cohort))groups.set(person.cohort,[]);
     groups.get(person.cohort).push(person);
   }
-  const branches=tree.children.filter(branch=>groups.get(branch.id)[0].packed);
+  const branches=tree.children.filter(branch=>branchIds?branchIds.includes(branch.id):groups.get(branch.id)[0].packed);
   if(!branches.length)return null;
-  const placed=nodes.filter(n=>!n.packed);
+  const packed=new Set(branches.map(branch=>branch.id));
+  const placed=nodes.filter(n=>!packed.has(n.branch));
   for(const branch of branches){
     const patch=buildPatch(branch,groups);
     const people=placePatch(branch,patch,groups,placed);
     if(!people)return null;
     placed.push(...people);
   }
-  const byId=new Map(orientPairs(tree,placed).map(p=>[p.id,p]));
+  const byId=new Map(orientPairs(tree,placed,packed).map(p=>[p.id,p]));
   return nodes.map(p=>byId.get(p.id));
 }

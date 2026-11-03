@@ -1,4 +1,4 @@
-import {isLive,relationshipDistances,displayName,familyGraph} from '../tree.js';
+import {isLive,relationshipDistances,displayName,familyGraph,partnerBlocks} from '../tree.js';
 import {sectorLayout,polar} from './sectors.js';
 import {familyRoute,fanCurve,localFanCurve,circlePort} from './family-routes.js';
 import {packFamilies} from './family-packing.js';
@@ -54,7 +54,12 @@ function arc(radius,start,end) {
   return `A${radius},${radius} 0 ${Math.abs(end-start)>Math.PI?1:0},${end>start?1:0} ${p}`;
 }
 
-function familyBlocks(index,start) {
+function orderedPartners(state,ids,people) {
+  const blocks=partnerBlocks(state,ids.map(id=>people.get(id)));
+  return blocks.flatMap(block=>ids.indexOf(block[0])>ids.indexOf(block.at(-1))?block.reverse():block);
+}
+
+function familyBlocks(index,start,state) {
   const owner=new Map([...index.people.keys()].map(id=>[id,id]));
   const find=id=>{while(owner.get(id)!==id)id=owner.get(id);return id;};
   for(const union of index.unions){
@@ -67,6 +72,9 @@ function familyBlocks(index,start) {
     if(!blocks.has(key))blocks.set(key,[]);
     blocks.get(key).push(id);
   }
+  for(const [key,ids] of blocks)if(ids.length>2){
+    blocks.set(key,orderedPartners(state,ids,index.people));
+  }
   const adj=new Map([...blocks.keys()].map(id=>[id,[]]));
   for(const [id,list] of index.adj)for(const relative of list){
     const a=find(id),b=find(relative.id);
@@ -75,14 +83,13 @@ function familyBlocks(index,start) {
   return {blocks,adj,family:index.family,start:find(start)};
 }
 
-function connectorLane(parents,nodes,partnerOnly) {
+function connectorLane(parents,nodes) {
   const ordered=parents.slice().sort((a,b)=>a.angle-b.angle);
   const first=ordered[0],last=ordered.at(-1);
   const band=nodes.filter(n=>n.radius===first.radius);
   const blocked=band.some(n=>!parents.includes(n)&&n.angle>first.angle&&n.angle<last.angle);
   const clearance=Math.max(...band.map(n=>n.card.width/2))+40;
-  const offset=partnerOnly?-clearance:clearance;
-  const radius=parents.length>2||blocked?first.radius+offset:first.radius;
+  const radius=parents.length>2||blocked?first.radius+clearance:first.radius;
   return {radius,angle:(first.angle+last.angle)/2};
 }
 
@@ -103,7 +110,7 @@ function packedParentLane(parents,nodes) {
   throw new RouteUnavailable('No clear connector for the packed parent group');
 }
 
-function familyConnector(parents,nodes,partnerOnly) {
+function familyConnector(parents,nodes) {
   const [first,second]=parents;
   if(first.free&&parents.length>2)return packedParentLane(parents,nodes);
   if(!first.depth||first.free){
@@ -111,7 +118,7 @@ function familyConnector(parents,nodes,partnerOnly) {
     connector.junction.depth=first.depth;
     return connector;
   }
-  const {radius,angle}=connectorLane(parents,nodes,partnerOnly);
+  const {radius,angle}=connectorLane(parents,nodes);
   const [x,y]=polar(angle,radius);
   const junction={x,y,angle,radius,depth:first.depth,card:{width:0}};
   const paths=parents.map(p=>{
@@ -132,7 +139,7 @@ function directLinks(records,positions,parents,nodes) {
 const parentType=edges=>edges.filter(e=>e.kind==='parent').map(e=>e.data.type).find(type=>type!=='birth');
 
 function familyRecords(union,positions,edges) {
-  return edges.filter(e=>e.kind==='parent'?union.parents.includes(e.data.parent)&&union.children.includes(e.data.child)&&positions.has(e.data.child):union.parents.includes(e.data.a)&&union.parents.includes(e.data.b));
+  return edges.filter(e=>e.kind==='parent'?union.parents.includes(e.data.parent)&&union.children.includes(e.data.child)&&positions.has(e.data.child):union.parents.length===2&&union.parents.includes(e.data.a)&&union.parents.includes(e.data.b));
 }
 
 function childRoute(junction,child,parents,step,track,nodes) {
@@ -162,8 +169,8 @@ function unionLinks(union,positions,index,nodes,track,step) {
   const records=familyRecords(union,positions,index.edges);
   if(!records.length)return [];
   const ids=parents.map(p=>p.id),key=union.id;
-  if(parents.length<2||(parents.length>2&&!parents[0].depth))return directLinks(records,positions,ids,nodes);
-  const {junction,paths}=familyConnector(parents,nodes,!union.children.length);
+  if(!children.length||parents.length<2||(parents.length>2&&!parents[0].depth))return directLinks(records,positions,ids,nodes);
+  const {junction,paths}=familyConnector(parents,nodes);
   const links=parents.map((p,i)=>({id:`${key}:${p.id}`,source:p.id,target:p.id,refs:records.filter(e=>endpoints(e).includes(p.id)).map(e=>e.id),parents:ids,kind:'union',type:parentType(records.filter(e=>e.data.parent===p.id)),family:key,d:paths[i]}));
   const family={parents,children,junction,records,nodes,step,track,key};
   for(const child of children)links.push(childLink(child,family));
@@ -187,12 +194,14 @@ function drawFamilies(nodes,step,index,state,start) {
 export function relationshipRings(state,start,maxDepth,d3,measure=text=>[...text].length*8) {
   const index=relationIndex(state);
   if(!index.people.has(start))return {nodes:[],links:[],other:[],step:210,beyond:0,disconnected:index.people.size};
-  const grouped=familyBlocks(index,start);
+  const grouped=familyBlocks(index,start,state);
   const tree=breadthTree(grouped,grouped.start,maxDepth);
-  const {nodes:seed,step}=sectorLayout(tree,index,grouped.blocks,start,d3,measure,fullName);
-  const packed=packFamilies(seed,tree);
-  if(packed){
-    try{return drawFamilies(packed,step,index,state,start);}
+  const {nodes:seed,step,packedAncestors}=sectorLayout(tree,index,grouped.blocks,start,d3,measure,fullName);
+  const descendants=packFamilies(seed,tree);
+  const both=packedAncestors.length?packFamilies(descendants||seed,tree,packedAncestors):null;
+  for(const nodes of [both,descendants]){
+    if(!nodes)continue;
+    try{return drawFamilies(nodes,step,index,state,start);}
     catch(error){if(!(error instanceof RouteUnavailable))throw error;}
   }
   return drawFamilies(seed,step,index,state,start);

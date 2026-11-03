@@ -8,4 +8,5 @@ logs/
 coverage/
 .metrics/
 target/
+/temp/
 !/docs/state/*.md

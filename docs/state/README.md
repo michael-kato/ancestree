@@ -36,7 +36,7 @@ The arrows show calls and data access. They are not a sequence of states.
 
 The Worker uses one internal tree record with ID `human`. The database retains `tree_id` columns for stored records. The viewer uses `/api/tree`. Public responses do not include account email addresses. Comments can be edited or deleted only by their author.
 
-The Family map reads the same tree at `/family-map/`. A person selector and a family level selector control the view. Wide descendant branches fit into compact groups. The map links back to the full tree for edits.
+The Family map reads the same tree at `/family-map/`. The URL stores the starting person and the family level limit. Copy link shares these settings. Back and Forward restore earlier settings. The map packs crowded descendant branches first. It then fits crowded branches through parents around those groups. Spouse chains keep partners next to each other where the group order permits it. Parent lines join for visible children. Separate partner lines use dots, and each line has a label with its records. The map links back to the full tree for edits.
 
 Edits read a sequence and the current entities. Validation checks node revisions, locks, relationship endpoints, and graph rules. The database batch writes only if the sequence is still current. If another write wins, the Worker reads the data again and repeats validation.
 

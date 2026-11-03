@@ -1,6 +1,7 @@
 import * as d3 from 'https://cdn.jsdelivr.net/npm/d3@7.9.0/+esm';
 import {fromRows,relatives,lifespan} from '../tree.js';
 import {relationshipRings,fullName} from './layout.js';
+import {readMapSettings,mapSettingsUrl} from './settings.js';
 const snapshot=await fetch('/api/tree').then(response=>{
  if(!response.ok)throw new Error('The tree request failed.');
  return response.json();
@@ -26,15 +27,23 @@ function familyColor(id){
  return familyColors[(hash>>>0)%familyColors.length];
 }
 const node=(tag,text)=>{const e=document.createElement(tag);if(text)e.textContent=text;return e;};
-const rootSelect=el('root');
+const rootSelect=el('root'),depthSelect=el('depth');
 for(const p of [...people].sort((a,b)=>name(a.id).localeCompare(name(b.id)))){const o=node('option',name(p.id));o.value=p.id;rootSelect.append(o);}
-rootSelect.value=state.entities.has('src-jinpachi-kaneko')?'src-jinpachi-kaneko':people[0]?.id;
-let chart,selected=rootSelect.value,transform=d3.zoomIdentity;
+const personIds=new Set(people.map(p=>p.id));
+const defaultPerson=personIds.has('src-jinpachi-kaneko')?'src-jinpachi-kaneko':people[0]?.id;
+const defaults={person:defaultPerson,levels:depthSelect.value};
+let chart,selected,transform=d3.zoomIdentity;
 const svg=d3.select('svg'),scene=svg.append('g'),extra=scene.append('g'),edges=scene.append('g'),marks=scene.append('g');
 const zoom=d3.zoom().scaleExtent([0.005,4]).on('zoom',event=>{
  transform=event.transform;scene.attr('transform',transform);el('zoom').value=`${Math.round(transform.k*100)}%`;
 });
 svg.call(zoom).on('dblclick.zoom',null);
+function describeRecord(id){
+ const {kind,data}=state.entities.get(id);
+ if(kind==='partner')return `${data.type==='married'?'Marriage':'Partners'} · ${name(data.a)} and ${name(data.b)}`;
+ const type=data.type||'birth';
+ return `${type[0].toUpperCase()+type.slice(1)} parent · ${name(data.parent)} to ${name(data.child)}`;
+}
 function fit(){
  const bounds=scene.node().getBBox(),r=svg.node().getBoundingClientRect();
  const k=Math.max(0.005,Math.min(1.1,(r.width-64)/Math.max(1,bounds.width),(r.height-132)/Math.max(1,bounds.height)));
@@ -42,10 +51,28 @@ function fit(){
  const y=(r.height+40)/2-(bounds.y+bounds.height/2)*k;
  svg.call(zoom.transform,d3.zoomIdentity.translate(x,y).scale(k));
 }
+function settingsUrl(){
+ return mapSettingsUrl(location.href,{person:rootSelect.value,levels:depthSelect.value});
+}
+function restoreSettings(){
+ const {person,levels}=readMapSettings(location.href,personIds,defaults);
+ selected=rootSelect.value=person;
+ depthSelect.value=levels;
+ el('share-status').textContent='';
+ draw();
+}
+function applySettings(){
+ const url=settingsUrl();
+ if(url.href!==location.href)history.pushState(null,'',url);
+ el('share-status').textContent='';
+ draw();
+}
 function draw(){
- chart=relationshipRings(state,rootSelect.value,Number(el('depth').value),d3,measure);
+ const depth=depthSelect.value==='unlimited'?Infinity:Number(depthSelect.value);
+ chart=relationshipRings(state,rootSelect.value,depth,d3,measure);
  const colors=new Map(chart.nodes.map(person=>[person.id,familyColor(person.cohort)]));
- edges.selectAll('path').data(chart.links,e=>e.id).join('path').attr('data-ref',e=>e.refs.join(' ')).attr('data-family',e=>e.family||'').attr('data-junction',e=>e.junction?.join(',')||'').attr('data-from',e=>e.source).attr('data-to',e=>e.target).attr('class',e=>`edge ${e.kind==='partner'?'partner':e.type}`).style('--edge-color',e=>colors.get(e.target)).attr('d',e=>e.d);
+ const paths=edges.selectAll('path').data(chart.links,e=>e.id).join('path').attr('data-ref',e=>e.refs.join(' ')).attr('data-family',e=>e.family||'').attr('data-junction',e=>e.junction?.join(',')||'').attr('data-from',e=>e.source).attr('data-to',e=>e.target).attr('class',e=>`edge ${e.kind==='partner'?'partner':e.type}`).style('--edge-color',e=>colors.get(e.target)).attr('d',e=>e.d);
+ paths.selectAll('title').data(e=>[e.refs.map(describeRecord).join('\n')]).join('title').text(label=>label);
  extra.selectAll('path').data(chart.other,e=>e.id).join('path').attr('data-ref',e=>e.refs.join(' ')).attr('data-family',e=>e.family||'').attr('data-junction',e=>e.junction?.join(',')||'').attr('data-from',e=>e.source).attr('data-to',e=>e.target).attr('class',e=>`context-edge ${e.kind==='parent'?e.type:''}`).style('--edge-color',e=>colors.get(e.target)).attr('d',e=>e.d);
  const groups=marks.selectAll('g.person').data(chart.nodes,n=>n.id).join(enter=>{
   const group=enter.append('g').attr('class','person').attr('role','button').attr('tabindex',0);
@@ -77,7 +104,7 @@ function inspect(id){
  if(position)container.append(node('p',`Family level ${position.depth}`));
  const years=lifespan(p.data);if(years)container.append(node('p',years));
  const buttons=node('div');buttons.className='button-row';
- const center=node('button','Start from this person');center.disabled=id===rootSelect.value;center.onclick=()=>{rootSelect.value=id;draw();};buttons.append(center);
+ const center=node('button','Start from this person');center.disabled=id===rootSelect.value;center.onclick=()=>{rootSelect.value=id;applySettings();};buttons.append(center);
 
  container.append(buttons);
  const list=node('ul');list.className='relatives';
@@ -94,8 +121,20 @@ function inspect(id){
  edges.selectAll('path').classed('active',e=>e.refs.some(ref=>path.has(ref)));
  extra.selectAll('path').classed('active',e=>e.source===id||e.target===id).attr('display',e=>el('context').checked||e.source===id||e.target===id?null:'none');
 }
-rootSelect.onchange=()=>{selected=rootSelect.value;draw();};el('depth').onchange=draw;el('context').onchange=()=>inspect(selected);
+rootSelect.onchange=()=>{selected=rootSelect.value;applySettings();};depthSelect.onchange=applySettings;el('context').onchange=()=>inspect(selected);
+el('share').onclick=async()=>{
+ try{
+  await navigator.clipboard.writeText(location.href);
+  el('share-status').textContent='Link copied.';
+ }catch{
+  el('share-status').textContent='Copy the link from the address bar.';
+ }
+};
 el('fit').onclick=fit;el('out').onclick=()=>svg.call(zoom.scaleBy,0.7);el('in').onclick=()=>svg.call(zoom.scaleBy,1/0.7);
 let initial=true;new ResizeObserver(()=>{if(chart&&!initial)fit();initial=false;}).observe(document.querySelector('.chart'));
-if(people.length)draw();
-else el('count').textContent='The tree has no people yet.';
+if(people.length){
+ restoreSettings();
+ history.replaceState(null,'',settingsUrl());
+ addEventListener('popstate',restoreSettings);
+ el('share').disabled=false;
+}else el('count').textContent='The tree has no people yet.';

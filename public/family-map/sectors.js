@@ -120,16 +120,21 @@ function compactBranches(tree,spacing,packedBranches) {
 }
 
 function fitRootFans(tree,centralMembers,ancestors,descendants) {
-  const wide=descendants.length>=PACKED_FAN_MIN_BRANCHES;
-  const centerWidth=centralPositions(centralMembers,wide);
+  const centerWidth=centralPositions(centralMembers,false);
   const spacing=Math.max(centerWidth/2+120,...tree.descendants().flatMap(n=>n.data.members.map(p=>p.card.width+120)));
+  demand(tree,spacing);
+  const ancestorDemand=groupNeed(ancestors,spacing);
+  const pressure=groupNeed(descendants,spacing)/DESCENDANT_SWEEP;
+  const wide=descendants.length>=PACKED_FAN_MIN_BRANCHES||descendants.length>=3&&pressure>2;
+  if(wide)centralPositions(centralMembers,true);
   const lowerSweep=wide?PACKED_FAN_SWEEP:DESCENDANT_SWEEP;
   const step=fitStep(tree,ancestors,descendants,spacing,lowerSweep);
   const upper=Math.min(ANCESTOR_SWEEP,SWEEP-groupNeed(descendants,step));
   fitFan(ancestors,0,upper,spacing);
   fitFan(descendants,Math.PI,Math.min(lowerSweep,SWEEP-upper),spacing);
   const packedBranches=new Set(wide?descendants.map(n=>n.data.id):[]);
-  return {spacing,step,packedBranches};
+  const packedAncestors=ancestors.length>1&&ancestorDemand>2*upper?ancestors.map(n=>n.data.id):[];
+  return {spacing,step,packedBranches,packedAncestors};
 }
 
 export function sectorLayout(root,index,blocks,start,d3,measure,fullName) {
@@ -139,10 +144,10 @@ export function sectorLayout(root,index,blocks,start,d3,measure,fullName) {
     return {id,name,card:cardLayout(name,lifespan(person.data),false,measure),depth:n.depth,branch:n.data.branch,cohort:n.data.id};
   });
   const centralMembers=tree.data.members;
-  centralMembers.sort((a,b)=>a.id===start?-1:b.id===start?1:0);
+  if(centralMembers.length===2)centralMembers.sort((a,b)=>a.id===start?-1:b.id===start?1:0);
   for(const n of tree.descendants())n.children?.sort((a,b)=>attachment(a,n.data.members,index)-attachment(b,n.data.members,index));
   const [ancestors,descendants]=rootGroups(tree.children,central,index.edges);
-  const {spacing,step,packedBranches}=fitRootFans(tree,centralMembers,ancestors,descendants);
+  const {spacing,step,packedBranches,packedAncestors}=fitRootFans(tree,centralMembers,ancestors,descendants);
   const nodes=compactBranches(tree,spacing,packedBranches);
-  return {nodes,step};
+  return {nodes,step,packedAncestors};
 }

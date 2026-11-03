@@ -23,15 +23,25 @@ function neighbors(id,xs,ys) {
   return ids;
 }
 
+function enqueue(queue,entry) {
+  let low=0,high=queue.length;
+  while(low<high){
+    const middle=Math.floor((low+high)/2);
+    if(queue[middle].score>=entry.score)low=middle+1;
+    else high=middle;
+  }
+  queue.splice(low,0,entry);
+}
+
 function visit(current,next,points,circles,padding,end,queue,best,previous,direction) {
   const a=points[current.id],b=points[next];
-  if(!clear([a,b],circles,padding))return;
+  if(circles.some(c=>hits(a,b,c,padding)))return;
   const axis=a[0]===b[0]?1:0,key=next*2+axis;
   if(current.initial&&axis===1&&(b[1]-a[1])*direction<-EPS)return;
   const cost=current.cost+length(a,b)+(axis===current.axis?0:12);
   if(cost>=(best.get(key)??Infinity))return;
   best.set(key,cost);previous.set(key,current.key);
-  queue.push({id:next,key,axis,cost,score:cost+Math.abs(b[0]-end[0])+Math.abs(b[1]-end[1])});
+  enqueue(queue,{id:next,key,axis,cost,score:cost+Math.abs(b[0]-end[0])+Math.abs(b[1]-end[1])});
 }
 
 function gridRoute(start,end,circles,padding,direction) {
@@ -41,7 +51,6 @@ function gridRoute(start,end,circles,padding,direction) {
   const axis=direction?1:0,key=first*2+axis;
   const queue=[{id:first,key,axis,cost:0,score:0,initial:true}],best=new Map([[key,0]]),previous=new Map();
   while(queue.length){
-    queue.sort((a,b)=>b.score-a.score);
     const current=queue.pop();
     if(current.cost!==best.get(current.key))continue;
     if(current.id===last){
